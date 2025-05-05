@@ -16,7 +16,7 @@ interface DashboardUser {
 
 export default function Dashboard() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, signOut, refreshUser } = useAuth();
   
   const [isLoading, setIsLoading] = useState(false);
   const [loadingFailed, setLoadingFailed] = useState(false);
@@ -46,6 +46,8 @@ export default function Dashboard() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [sessionRecoveryAttempted, setSessionRecoveryAttempted] = useState(false);
+  const [recoveryInProgress, setRecoveryInProgress] = useState(false);
 
   // Load saved dashboard state from localStorage
   useEffect(() => {
@@ -341,6 +343,9 @@ export default function Dashboard() {
         console.log('Dashboard safety timeout reached');
         setIsLoading(false);
         setLoadingFailed(true);
+        
+        // Try to recover data from localStorage even if loading failed
+        tryRecoverFromLocalStorage();
       }
     }, 10000);
     
@@ -349,10 +354,118 @@ export default function Dashboard() {
       if (!dataLoaded || teams.length === 0) {
         fetchTeamsBasedOnRole();
       }
+    } else if (!isLoading && !recoveryInProgress) {
+      // If no user and not loading, attempt recovery once
+      if (!sessionRecoveryAttempted) {
+        console.log('No user detected, attempting session recovery');
+        setSessionRecoveryAttempted(true);
+        setRecoveryInProgress(true);
+        
+        // Try to refresh the user session
+        refreshUser().then(() => {
+          console.log('User session refreshed');
+          setRecoveryInProgress(false);
+        }).catch(error => {
+          console.error('Failed to refresh user session:', error);
+          setRecoveryInProgress(false);
+          // Try to recover data from localStorage
+          tryRecoverFromLocalStorage();
+        });
+      }
     }
     
     return () => clearTimeout(safetyTimeout);
-  }, [user, dataLoaded, teams.length]);
+  }, [user, dataLoaded, teams.length, sessionRecoveryAttempted, recoveryInProgress]);
+
+  // Add function to try recovering data from localStorage without authentication
+  const tryRecoverFromLocalStorage = () => {
+    console.log('Attempting to recover data from localStorage');
+    
+    try {
+      // Get cached email from localStorage
+      let userEmail = null;
+      
+      // Try to get the user email from various sources
+      const cachedUser = localStorage.getItem('aditi_user_cache');
+      if (cachedUser) {
+        try {
+          const parsedUser = JSON.parse(cachedUser);
+          userEmail = parsedUser.email;
+        } catch (e) {
+          console.error('Error parsing cached user:', e);
+        }
+      }
+      
+      if (!userEmail) {
+        // Look for dashboard keys to determine the email
+        const keys = Object.keys(localStorage);
+        const dashboardKey = keys.find(key => key.startsWith('dashboard_') && key.includes('@'));
+        if (dashboardKey) {
+          userEmail = dashboardKey.split('dashboard_')[1].split('_')[0];
+        }
+      }
+      
+      if (userEmail) {
+        console.log('Recovered user email:', userEmail);
+        
+        // Check for chunked data first
+        const chunkCountStr = localStorage.getItem(`dashboard_historicalData_chunkCount_${userEmail}`);
+        
+        if (chunkCountStr) {
+          // We have chunked data, load all chunks and combine them
+          const chunkCount = parseInt(chunkCountStr);
+          let combinedData: DailyUpdate[] = [];
+          
+          // Load each chunk
+          for (let i = 0; i < chunkCount; i++) {
+            const chunkData = localStorage.getItem(`dashboard_historicalData_chunk_${i}_${userEmail}`);
+            if (chunkData) {
+              const parsedChunk = JSON.parse(chunkData) as DailyUpdate[];
+              combinedData = [...combinedData, ...parsedChunk];
+            }
+          }
+          
+          // Use the combined data if we have any
+          if (combinedData.length > 0) {
+            console.log('Recovered data from localStorage chunks:', combinedData.length);
+            setHistoricalData(combinedData);
+            setFilteredData(combinedData);
+            calculateStats(combinedData);
+            setDataLoaded(true);
+            setLoadingFailed(false);
+            return true;
+          }
+        }
+        
+        // Try the old approach as fallback
+        const oldDataStr = localStorage.getItem(`dashboard_historicalData_${userEmail}`);
+        if (oldDataStr) {
+          try {
+            const parsedData = JSON.parse(oldDataStr);
+            console.log('Recovered data from localStorage (old format):', parsedData.length);
+            setHistoricalData(parsedData);
+            setFilteredData(parsedData);
+            calculateStats(parsedData);
+            setDataLoaded(true);
+            setLoadingFailed(false);
+            return true;
+          } catch (e) {
+            console.error('Error parsing old format data:', e);
+          }
+        }
+        
+        // If we get here, recovery failed
+        console.log('Data recovery failed - no valid data found');
+        return false;
+      } else {
+        console.log('Could not determine user email for recovery');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error during data recovery:', error);
+      return false;
+    }
+  };
 
   // Add a new effect to handle visibility changes (tab switching)
   useEffect(() => {
@@ -494,6 +607,11 @@ export default function Dashboard() {
       const timeout = setTimeout(() => {
         setIsLoading(false);
         console.log('Fetch data timeout reached, forcing loading state to false');
+        
+        // Try to recover data from localStorage if the fetch times out
+        if (!dataLoaded) {
+          tryRecoverFromLocalStorage();
+        }
       }, 8000); // 8 seconds max loading time
       
       if (loadingTimeout) clearTimeout(loadingTimeout);
@@ -527,7 +645,11 @@ export default function Dashboard() {
         }
       }
 
-      query = query.order('created_at', { ascending: false });
+      // Limit to 500 records to prevent performance issues
+      query = query.order('created_at', { ascending: false }).limit(500);
+      
+      // Add a short timeout to prevent rapid API calls
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       const { data, error } = await query;
 
@@ -572,10 +694,9 @@ export default function Dashboard() {
       // Update localStorage with latest data
       if (user?.email) {
         try {
-          localStorage.setItem(`dashboard_historicalData_${user.email}`, JSON.stringify(updatesWithTeams));
+          // Store data in chunks for better persistence
+          storeHistoricalDataInChunks(user.email, updatesWithTeams);
           localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
-          
-          // Don't store filtered data yet as applyFilters will run and update it
         } catch (error) {
           console.error('Error saving fetched data to localStorage:', error);
         }
@@ -592,21 +713,29 @@ export default function Dashboard() {
         console.error('Session token issue detected (406 error). Attempting to refresh session...');
         
         try {
-          // Try to refresh the session
+          // Try to refresh the user session first
+          await refreshUser();
+          
+          // Try to refresh the supabase session
           const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
           
           if (refreshError || !sessionData.session) {
             console.error('Failed to refresh session after 406 error:', refreshError);
             
-            // Clear any cached authentication data and sign out
-            try {
-              await signOut();
-              return;
-            } catch (e) {
-              console.error('Error during sign out after 406 error:', e);
-              // Force redirect to login page if sign out fails
-              window.location.href = '/';
-              return;
+            // Before signing out, try to recover from localStorage
+            const recovered = tryRecoverFromLocalStorage();
+            
+            if (!recovered) {
+              // Clear any cached authentication data and sign out
+              try {
+                await signOut();
+                return;
+              } catch (e) {
+                console.error('Error during sign out after 406 error:', e);
+                // Force redirect to login page if sign out fails
+                window.location.href = '/';
+                return;
+              }
             }
           }
           
@@ -631,7 +760,8 @@ export default function Dashboard() {
             }
           }
           
-          retryQuery = retryQuery.order('created_at', { ascending: false });
+          // Limit to 500 records to prevent performance issues
+          retryQuery = retryQuery.order('created_at', { ascending: false }).limit(500);
           
           const { data: retryData, error: retryError } = await retryQuery;
             
@@ -673,7 +803,7 @@ export default function Dashboard() {
           // Update localStorage with latest data
           if (user?.email) {
             try {
-              localStorage.setItem(`dashboard_historicalData_${user.email}`, JSON.stringify(updatesWithTeams));
+              storeHistoricalDataInChunks(user.email, updatesWithTeams);
               localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
             } catch (error) {
               console.error('Error saving retry data to localStorage:', error);
@@ -682,17 +812,29 @@ export default function Dashboard() {
         } catch (retryError) {
           console.error('Error during retry:', retryError);
           toast.error('Failed to load updates');
+          
+          // Before showing error state, try to recover from localStorage
+          const recovered = tryRecoverFromLocalStorage();
+          
+          if (!recovered) {
+            setHistoricalData([]);
+            setFilteredData([]);
+            calculateStats([]);
+            setLoadingFailed(true);
+          }
+        }
+      } else {
+        toast.error('Failed to load updates');
+        
+        // Before showing error state, try to recover from localStorage
+        const recovered = tryRecoverFromLocalStorage();
+          
+        if (!recovered) {
           setHistoricalData([]);
           setFilteredData([]);
           calculateStats([]);
           setLoadingFailed(true);
         }
-      } else {
-        toast.error('Failed to load updates');
-        setHistoricalData([]);
-        setFilteredData([]);
-        calculateStats([]);
-        setLoadingFailed(true);
       }
     } finally {
       setIsLoading(false);
@@ -700,87 +842,40 @@ export default function Dashboard() {
     }
   };
 
-  // Add a silent data fetching function (no loading state, for background refresh)
-  const fetchDataSilently = async (teamFilter: string = '') => {
-    // Check if we're returning from a tab switch
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('returning_from_tab_switch')) {
-      console.log('Skipping silent data refresh due to returning from tab switch');
-      return; // Skip refresh if returning from tab switch
-    }
-    
+  // Function to store historical data in chunks
+  const storeHistoricalDataInChunks = (userEmail: string, data: DailyUpdate[]) => {
     try {
-      console.log('Silent data refresh starting, teamFilter:', teamFilter);
-      let query = supabase
-        .from('aditi_daily_updates')
-        .select('*');
-
-      // Admin with no team filter sees all data
-      if (user?.role === 'admin' && !teamFilter) {
-        // No additional filters needed - admin sees all
-      } 
-      // Admin with team filter or manager sees specific team data
-      else if (teamFilter) {
-        query = query.eq('team_id', teamFilter);
-      }
-      // Manager with no specific team selected sees all their teams' data
-      else if (user?.role === 'manager') {
-        const managerTeamIds = teams.map(team => team.id);
-        if (managerTeamIds.length > 0) {
-          query = query.in('team_id', managerTeamIds);
-        } else {
-          return; // No teams to fetch for
-        }
-      }
-
-      query = query.order('created_at', { ascending: false });
+      // Implementation of data chunking for large datasets
+      const chunkSize = 50; // Number of records per chunk
+      const chunks = [];
       
-      const { data, error } = await query;
-
-      if (error) throw error;
-      
-      // Fetch team data separately and add it to updates
-      let updatesWithTeams = data || [];
-      if (data && data.length > 0) {
-        // Get unique team IDs from updates
-        const teamIds = [...new Set(data.map(update => update.team_id))];
-        
-        // Fetch all relevant teams
-        const { data: teamsData } = await supabase
-          .from('aditi_teams')
-          .select('*')
-          .in('id', teamIds);
-        
-        // Add team data to each update
-        updatesWithTeams = data.map(update => {
-          const team = teamsData?.find(t => t.id === update.team_id);
-          return {
-            ...update,
-            aditi_teams: team || null
-          };
-        });
+      // Split historical data into chunks
+      for (let i = 0; i < data.length; i += chunkSize) {
+        const chunk = data.slice(i, i + chunkSize);
+        chunks.push(chunk);
       }
       
-      // Update state with fetched data
-      setHistoricalData(updatesWithTeams);
-      setFilteredData(updatesWithTeams);
-      calculateStats(updatesWithTeams);
+      // Clear any existing chunks first
+      for (let i = 0; i < 100; i++) { // Assume max 100 chunks
+        localStorage.removeItem(`dashboard_historicalData_chunk_${i}_${userEmail}`);
+      }
       
-      const now = new Date();
-      setLastRefreshed(now);
-      setDataLoaded(true);
+      // Store new chunks
+      chunks.forEach((chunk, index) => {
+        localStorage.setItem(`dashboard_historicalData_chunk_${index}_${userEmail}`, JSON.stringify(chunk));
+      });
       
-      // Update localStorage with latest data
-      if (user?.email) {
-        try {
-          localStorage.setItem(`dashboard_historicalData_${user.email}`, JSON.stringify(updatesWithTeams));
-          localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
-        } catch (error) {
-          console.error('Error saving fetched data to localStorage:', error);
-        }
+      // Store chunk metadata
+      localStorage.setItem(`dashboard_historicalData_chunkCount_${userEmail}`, chunks.length.toString());
+      
+      // Try to store filtered data, but catch if it's too large
+      try {
+        localStorage.setItem(`dashboard_filteredData_${userEmail}`, JSON.stringify(filteredData));
+      } catch (err) {
+        console.log('Filtered data too large for localStorage, will recompute on load');
       }
     } catch (error) {
-      console.error('Error silently fetching data:', error);
-      // Don't show error messages to user when doing background refresh
+      console.error('Error storing data in chunks:', error);
     }
   };
 
@@ -1003,6 +1098,96 @@ export default function Dashboard() {
     setTimeout(() => {
       fetchTeamsBasedOnRole();
     }, 300);
+  };
+
+  // Add a silent data fetching function (no loading state, for background refresh)
+  const fetchDataSilently = async (teamFilter: string = '') => {
+    // Check if we're returning from a tab switch
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('returning_from_tab_switch')) {
+      console.log('Skipping silent data refresh due to returning from tab switch');
+      return; // Skip refresh if returning from tab switch
+    }
+    
+    try {
+      console.log('Silent data refresh starting, teamFilter:', teamFilter);
+      let query = supabase
+        .from('aditi_daily_updates')
+        .select('*');
+
+      // Admin with no team filter sees all data
+      if (user?.role === 'admin' && !teamFilter) {
+        // No additional filters needed - admin sees all
+      } 
+      // Admin with team filter or manager sees specific team data
+      else if (teamFilter) {
+        query = query.eq('team_id', teamFilter);
+      }
+      // Manager with no specific team selected sees all their teams' data
+      else if (user?.role === 'manager') {
+        const managerTeamIds = teams.map(team => team.id);
+        if (managerTeamIds.length > 0) {
+          query = query.in('team_id', managerTeamIds);
+        } else {
+          return; // No teams to fetch for
+        }
+      }
+
+      // Limit to 300 records for the silent update
+      query = query.order('created_at', { ascending: false }).limit(300);
+      
+      const { data, error } = await query;
+
+      if (error) throw error;
+      
+      // Fetch team data separately and add it to updates
+      let updatesWithTeams = data || [];
+      if (data && data.length > 0) {
+        // Get unique team IDs from updates
+        const teamIds = [...new Set(data.map(update => update.team_id))];
+        
+        // Fetch all relevant teams
+        const { data: teamsData } = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .in('id', teamIds);
+        
+        // Add team data to each update
+        updatesWithTeams = data.map(update => {
+          const team = teamsData?.find(t => t.id === update.team_id);
+          return {
+            ...update,
+            aditi_teams: team || null
+          };
+        });
+      }
+      
+      // Update state with fetched data
+      setHistoricalData(updatesWithTeams);
+      setFilteredData(updatesWithTeams);
+      calculateStats(updatesWithTeams);
+      
+      const now = new Date();
+      setLastRefreshed(now);
+      setDataLoaded(true);
+      
+      // Update localStorage with latest data
+      if (user?.email) {
+        try {
+          storeHistoricalDataInChunks(user.email, updatesWithTeams);
+          localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
+        } catch (error) {
+          console.error('Error saving fetched data to localStorage:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error silently fetching data:', error);
+      // Don't show error messages to user when doing background refresh
+      
+      // Try to recover from localStorage if silent refresh fails
+      if (!dataLoaded) {
+        tryRecoverFromLocalStorage();
+      }
+    }
   };
 
   return (

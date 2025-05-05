@@ -22,6 +22,10 @@ export default function AuthOTP() {
         email,
         options: {
           emailRedirectTo: window.location.origin,
+          shouldCreateUser: true,
+          data: {
+            session_expiry: 604800
+          }
         },
       });
       

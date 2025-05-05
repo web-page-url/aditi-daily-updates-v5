@@ -19,6 +19,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     detectSessionInUrl: true,
     storageKey: 'aditi_supabase_auth',
+    // Note: Session expiration is set to 7 days in the OTP signin options
+    // The actual expiration period is controlled by Supabase project settings
+    // and the options provided during sign-in
     storage: {
       getItem: (key) => {
         const storedSession = localStorage.getItem(key);
