@@ -123,12 +123,39 @@ export default function Dashboard() {
   useEffect(() => {
     if (user?.email && historicalData.length > 0) {
       try {
-        localStorage.setItem(`dashboard_historicalData_${user.email}`, JSON.stringify(historicalData));
+        // Implementation of data chunking for large datasets
+        // Break down the historical data into smaller chunks to avoid localStorage size limits
+        const chunkSize = 50; // Number of records per chunk
+        const chunks = [];
         
-        // Also save filtered data so we don't need to recompute it
-        localStorage.setItem(`dashboard_filteredData_${user.email}`, JSON.stringify(filteredData));
+        // Split historical data into chunks
+        for (let i = 0; i < historicalData.length; i += chunkSize) {
+          const chunk = historicalData.slice(i, i + chunkSize);
+          chunks.push(chunk);
+        }
         
-        // Save stats
+        // Clear any existing chunks first
+        for (let i = 0; i < 100; i++) { // Assume max 100 chunks (generous upper limit)
+          localStorage.removeItem(`dashboard_historicalData_chunk_${i}_${user.email}`);
+        }
+        
+        // Store new chunks
+        chunks.forEach((chunk, index) => {
+          localStorage.setItem(`dashboard_historicalData_chunk_${index}_${user.email}`, JSON.stringify(chunk));
+        });
+        
+        // Store chunk metadata (count of chunks)
+        localStorage.setItem(`dashboard_historicalData_chunkCount_${user.email}`, chunks.length.toString());
+        
+        // Also save filtered data (but not chunked, as it's likely smaller)
+        // If it's still too large, we'll just skip it and recompute
+        try {
+          localStorage.setItem(`dashboard_filteredData_${user.email}`, JSON.stringify(filteredData));
+        } catch (err) {
+          console.log('Filtered data too large for localStorage, will recompute on load');
+        }
+        
+        // Save stats - small data, should always work
         localStorage.setItem(`dashboard_stats_${user.email}`, JSON.stringify(stats));
         
         // Save last refreshed time
@@ -137,7 +164,7 @@ export default function Dashboard() {
         }
       } catch (error) {
         console.error('Error saving dashboard data to localStorage:', error);
-        // If we encounter an error (likely because the data is too large), clear previous data
+        // If we encounter an error, clear previous data
         localStorage.removeItem(`dashboard_historicalData_${user.email}`);
         localStorage.removeItem(`dashboard_filteredData_${user.email}`);
         localStorage.removeItem(`dashboard_stats_${user.email}`);
@@ -149,8 +176,38 @@ export default function Dashboard() {
   useEffect(() => {
     if (user) {
       try {
+        // First, check if we have chunked data
+        const chunkCountStr = localStorage.getItem(`dashboard_historicalData_chunkCount_${user.email}`);
+        
         // Load all saved data (already loading filters in previous useEffect)
-        const savedHistoricalData = localStorage.getItem(`dashboard_historicalData_${user.email}`);
+        let savedHistoricalData = null;
+        
+        if (chunkCountStr) {
+          // We have chunked data, load all chunks and combine them
+          const chunkCount = parseInt(chunkCountStr);
+          let combinedData: DailyUpdate[] = [];
+          
+          // Load each chunk
+          for (let i = 0; i < chunkCount; i++) {
+            const chunkData = localStorage.getItem(`dashboard_historicalData_chunk_${i}_${user.email}`);
+            if (chunkData) {
+              const parsedChunk = JSON.parse(chunkData) as DailyUpdate[];
+              combinedData = [...combinedData, ...parsedChunk];
+            }
+          }
+          
+          // Use the combined data if we have any
+          if (combinedData.length > 0) {
+            savedHistoricalData = combinedData;
+          }
+        } else {
+          // Try the old approach as a fallback
+          const oldDataStr = localStorage.getItem(`dashboard_historicalData_${user.email}`);
+          if (oldDataStr) {
+            savedHistoricalData = JSON.parse(oldDataStr);
+          }
+        }
+        
         const savedFilteredData = localStorage.getItem(`dashboard_filteredData_${user.email}`);
         const savedStats = localStorage.getItem(`dashboard_stats_${user.email}`);
         const savedLastRefreshed = localStorage.getItem(`dashboard_lastRefreshed_${user.email}`);
@@ -159,15 +216,14 @@ export default function Dashboard() {
         // Set data loaded flag to true if we have saved data
         let hasData = false;
         
-        if (savedHistoricalData) {
-          const parsedData = JSON.parse(savedHistoricalData);
-          setHistoricalData(parsedData);
+        if (savedHistoricalData && savedHistoricalData.length > 0) {
+          setHistoricalData(savedHistoricalData);
           hasData = true;
           
           // If we have historical data but no filtered data, apply filters immediately
-          if (!savedFilteredData && parsedData.length > 0) {
+          if (!savedFilteredData && savedHistoricalData.length > 0) {
             // Create a filtered copy based on current filters
-            let filtered = [...parsedData];
+            let filtered = [...savedHistoricalData];
             
             // Apply date range filter
             filtered = filtered.filter(update => {
@@ -188,13 +244,22 @@ export default function Dashboard() {
         }
         
         if (savedFilteredData) {
-          const parsedFilteredData = JSON.parse(savedFilteredData);
-          setFilteredData(parsedFilteredData);
-          
-          // If we didn't have historical data but have filtered data, set historical as well
-          if (!savedHistoricalData && parsedFilteredData.length > 0) {
-            setHistoricalData(parsedFilteredData);
-            hasData = true;
+          try {
+            const parsedFilteredData = JSON.parse(savedFilteredData);
+            setFilteredData(parsedFilteredData);
+            
+            // If we didn't have historical data but have filtered data, set historical as well
+            if (!savedHistoricalData && parsedFilteredData.length > 0) {
+              setHistoricalData(parsedFilteredData);
+              hasData = true;
+            }
+          } catch (error) {
+            console.error('Error parsing filtered data from localStorage:', error);
+            // If we can't parse the filtered data, but have historical data,
+            // we can recompute the filtered data
+            if (savedHistoricalData && savedHistoricalData.length > 0) {
+              applyFilters();
+            }
           }
         }
         
@@ -221,8 +286,18 @@ export default function Dashboard() {
             applyFilters();
           }, 100);
         }
+        
+        // Even if we have saved data, always fetch fresh data after a delay
+        // This ensures we eventually get fresh data even if the saved data is stale
+        const refreshDelay = hasData ? 5000 : 0; // If we have saved data, delay the refresh
+        setTimeout(() => {
+          fetchTeamsBasedOnRole();
+        }, refreshDelay);
+        
       } catch (error) {
         console.error('Error loading saved dashboard data:', error);
+        // If we hit an error loading saved data, fetch fresh data immediately
+        fetchTeamsBasedOnRole();
       }
     }
   }, [user]);
@@ -281,11 +356,33 @@ export default function Dashboard() {
 
   // Add a new effect to handle visibility changes (tab switching)
   useEffect(() => {
+    // Track the last visibility change timestamp
+    let lastVisibilityChange = Date.now();
+    
     // Function to handle visibility change
     const handleVisibilityChange = () => {
       // Set a class on the body to indicate recent tab visibility change
       if (document.visibilityState === 'visible') {
         console.log('Tab became visible, preventing unnecessary refreshes');
+        
+        // Store the timestamp when we came back to the tab
+        const now = Date.now();
+        const timeSinceLastChange = now - lastVisibilityChange;
+        lastVisibilityChange = now;
+        
+        // If we switched tabs recently (within last 10 seconds),
+        // prevent refresh by setting a flag
+        if (timeSinceLastChange < 10000) {
+          console.log('Recent tab switch detected, preventing refresh');
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('returning_from_tab_switch', 'true');
+            
+            // Clear the flag after 3 seconds to allow future refreshes
+            setTimeout(() => {
+              sessionStorage.removeItem('returning_from_tab_switch');
+            }, 3000);
+          }
+        }
         
         // Check if the global prevention mechanism is active
         const preventRefresh = typeof sessionStorage !== 'undefined' && 
@@ -304,6 +401,9 @@ export default function Dashboard() {
         setTimeout(() => {
           document.body.classList.remove('dashboard-tab-active');
         }, 2000);
+      } else if (document.visibilityState === 'hidden') {
+        // Track when we leave the tab
+        lastVisibilityChange = Date.now();
       }
     };
     
@@ -798,13 +898,39 @@ export default function Dashboard() {
   };
 
   const refreshData = async () => {
+    // Prevent multiple rapid refreshes
+    if (isRefreshing) {
+      return;
+    }
+    
     // Check if we're returning from a tab switch
     if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('returning_from_tab_switch')) {
       console.log('Skipping manual data refresh due to returning from tab switch');
+      
+      // Show a message to the user
+      toast('Just switched tabs, refresh prevented', {
+        icon: 'ℹ️',
+        style: {
+          borderRadius: '10px',
+          background: '#333',
+          color: '#fff',
+        },
+      });
       return; // Skip refresh if returning from tab switch
     }
     
     setIsRefreshing(true);
+    
+    // Set a temporary prevention flag
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('prevent_auto_refresh', 'true');
+      
+      // Remove it after a few seconds
+      setTimeout(() => {
+        sessionStorage.removeItem('prevent_auto_refresh');
+      }, 5000);
+    }
+    
     try {
       await fetchData(selectedTeam);
       const now = new Date();
@@ -822,6 +948,61 @@ export default function Dashboard() {
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  // Add a periodic refresh mechanism
+  useEffect(() => {
+    // If we have data loaded, set up a periodic refresh
+    if (dataLoaded && user) {
+      const refreshInterval = 5 * 60 * 1000; // 5 minutes
+      let lastRefreshTime = Date.now();
+      
+      const intervalId = setInterval(() => {
+        // Check if the tab is active before refreshing
+        if (document.visibilityState === 'visible') {
+          // Check if we've recently returned from a tab switch
+          const returningFromTabSwitch = typeof sessionStorage !== 'undefined' && 
+            sessionStorage.getItem('returning_from_tab_switch');
+          
+          // Only refresh if enough time has passed and we're not returning from a tab switch
+          const timeSinceLastRefresh = Date.now() - lastRefreshTime;
+          if (!returningFromTabSwitch && timeSinceLastRefresh >= refreshInterval) {
+            console.log('Running periodic silent data refresh');
+            fetchDataSilently(selectedTeam);
+            lastRefreshTime = Date.now();
+          } else if (returningFromTabSwitch) {
+            console.log('Skipping refresh due to recent tab switch');
+          }
+        }
+      }, 30000); // Check every 30 seconds instead of waiting full 5 minutes
+      
+      return () => clearInterval(intervalId);
+    }
+  }, [dataLoaded, user, selectedTeam]);
+
+  // Modify the Clear Cache button click handler
+  const clearCache = () => {
+    if (user?.email) {
+      // Clear all localStorage data related to the dashboard
+      for (let i = 0; i < 100; i++) { // Clear potential chunked data
+        localStorage.removeItem(`dashboard_historicalData_chunk_${i}_${user.email}`);
+      }
+      localStorage.removeItem(`dashboard_historicalData_chunkCount_${user.email}`);
+      localStorage.removeItem(`dashboard_historicalData_${user.email}`);
+      localStorage.removeItem(`dashboard_filteredData_${user.email}`);
+      localStorage.removeItem(`dashboard_stats_${user.email}`);
+      localStorage.removeItem(`dashboard_activeTab_${user.email}`);
+      localStorage.removeItem(`dashboard_selectedTeam_${user.email}`);
+      localStorage.removeItem(`dashboard_dateRange_${user.email}`);
+      localStorage.removeItem(`dashboard_expandedRows_${user.email}`);
+      localStorage.removeItem(`dashboard_currentPage_${user.email}`);
+      localStorage.removeItem(`dashboard_lastRefreshed_${user.email}`);
+      toast.success('Cache cleared, refreshing data...');
+    }
+    // Fetch fresh data
+    setTimeout(() => {
+      fetchTeamsBasedOnRole();
+    }, 300);
   };
 
   return (
@@ -922,25 +1103,10 @@ export default function Dashboard() {
                     Retry
                   </button>
                   <button 
-                    onClick={() => {
-                      // Clear localStorage data for this dashboard
-                      if (user?.email) {
-                        localStorage.removeItem(`dashboard_historicalData_${user.email}`);
-                        localStorage.removeItem(`dashboard_filteredData_${user.email}`);
-                        localStorage.removeItem(`dashboard_stats_${user.email}`);
-                        localStorage.removeItem(`dashboard_activeTab_${user.email}`);
-                        localStorage.removeItem(`dashboard_selectedTeam_${user.email}`);
-                        localStorage.removeItem(`dashboard_dateRange_${user.email}`);
-                        localStorage.removeItem(`dashboard_expandedRows_${user.email}`);
-                        localStorage.removeItem(`dashboard_currentPage_${user.email}`);
-                        localStorage.removeItem(`dashboard_lastRefreshed_${user.email}`);
-                      }
-                      // Reload the page
-                      router.reload();
-                    }}
+                    onClick={clearCache}
                     className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
                   >
-                    Clear Cache & Reload
+                    Clear Cache
                   </button>
                 </div>
               </div>
@@ -1038,28 +1204,10 @@ export default function Dashboard() {
                         Export CSV
                       </button>
                       <button
-                        onClick={() => {
-                          // Clear localStorage data for this dashboard
-                          if (user?.email) {
-                            localStorage.removeItem(`dashboard_historicalData_${user.email}`);
-                            localStorage.removeItem(`dashboard_filteredData_${user.email}`);
-                            localStorage.removeItem(`dashboard_stats_${user.email}`);
-                            localStorage.removeItem(`dashboard_activeTab_${user.email}`);
-                            localStorage.removeItem(`dashboard_selectedTeam_${user.email}`);
-                            localStorage.removeItem(`dashboard_dateRange_${user.email}`);
-                            localStorage.removeItem(`dashboard_expandedRows_${user.email}`);
-                            localStorage.removeItem(`dashboard_currentPage_${user.email}`);
-                            localStorage.removeItem(`dashboard_lastRefreshed_${user.email}`);
-                            toast.success('Cache cleared, refreshing data...');
-                          }
-                          // Fetch fresh data
-                          setTimeout(() => {
-                            fetchTeamsBasedOnRole();
-                          }, 300);
-                        }}
+                        onClick={clearCache}
                         className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors duration-300"
-                      >
-                        Clear Cache
+                      >  
+                        {/* Clear Cache   */}
                       </button>
                     </div>
                   </div>
@@ -1222,23 +1370,44 @@ export default function Dashboard() {
                                         <td colSpan={10} className="px-6 py-4 bg-[#1e2538]">
                                           <div className="space-y-4">
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                              <div>
+                                              <div className="overflow-hidden">
                                                 <h4 className="text-sm font-medium text-gray-300 mb-2">Tasks Completed</h4>
-                                                <p className="text-sm text-white whitespace-pre-wrap">{item.tasks_completed}</p>
+                                                <p className="text-sm text-white whitespace-pre-wrap break-words">{item.tasks_completed}</p>
                                               </div>
                                               
-                                              <div>
+                                              <div className="overflow-hidden">
                                                 <h4 className="text-sm font-medium text-gray-300 mb-2">Task Details</h4>
-                                                <p className="text-sm mb-1"><span className="text-gray-400">Date Range:</span> {item.start_date ? new Date(item.start_date).toLocaleDateString() : '-'} - {item.end_date ? new Date(item.end_date).toLocaleDateString() : '-'}</p>
-                                                <p className="text-sm mb-1"><span className="text-gray-400">Story Points:</span> {item.story_points !== null ? item.story_points : 'Not specified'}</p>
-                                                <p className="text-sm mb-1"><span className="text-gray-400">Status:</span> {item.status}</p>
+                                                <div className="space-y-2">
+                                                  <p className="text-sm mb-1 flex flex-wrap">
+                                                    <span className="text-gray-400 mr-2 min-w-[120px]">Date Range:</span> 
+                                                    <span className="text-white">
+                                                      {item.start_date ? new Date(item.start_date).toLocaleDateString() : '-'} - {item.end_date ? new Date(item.end_date).toLocaleDateString() : '-'}
+                                                    </span>
+                                                  </p>
+                                                  <p className="text-sm mb-1 flex flex-wrap">
+                                                    <span className="text-gray-400 mr-2 min-w-[120px]">Story Points:</span> 
+                                                    <span className="text-white">
+                                                      {item.story_points !== null ? item.story_points : 'Not specified'}
+                                                    </span>
+                                                  </p>
+                                                  <p className="text-sm mb-1 flex flex-wrap">
+                                                    <span className="text-gray-400 mr-2 min-w-[120px]">Status:</span> 
+                                                    <span className={`font-medium ${
+                                                      item.status === 'completed' ? 'text-green-400' :
+                                                      item.status === 'in-progress' ? 'text-blue-400' :
+                                                      'text-red-400'
+                                                    }`}>
+                                                      {item.status}
+                                                    </span>
+                                                  </p>
+                                                </div>
                                               </div>
                                               
                                               {item.blocker_type && (
-                                                <div>
+                                                <div className="overflow-hidden">
                                                   <h4 className="text-sm font-medium text-gray-300 mb-2">Blockers / Risks / Dependencies</h4>
                                                   <div className="space-y-2">
-                                                    <div className="bg-[#1e2538] p-3 rounded-md">
+                                                    <div className="bg-[#262d40] p-3 rounded-md">
                                                       <div className="flex items-center space-x-2 mb-1">
                                                         <span className={`inline-block px-2 py-1 text-xs rounded-full ${
                                                           item.blocker_type === 'Risks' ? 'bg-yellow-500/20 text-yellow-400' :
@@ -1251,7 +1420,7 @@ export default function Dashboard() {
                                                           Resolution: {item.expected_resolution_date ? new Date(item.expected_resolution_date).toLocaleDateString() : 'Not set'}
                                                         </span>
                                                       </div>
-                                                      <p className="text-sm text-white whitespace-pre-wrap">{item.blocker_description}</p>
+                                                      <p className="text-sm text-white whitespace-pre-wrap break-words">{item.blocker_description}</p>
                                                     </div>
                                                   </div>
                                                 </div>
@@ -1259,10 +1428,10 @@ export default function Dashboard() {
                                             </div>
 
                                             {item.additional_notes && (
-                                              <>
+                                              <div className="overflow-hidden">
                                                 <h4 className="text-sm font-medium text-gray-300 mb-2">Additional Notes</h4>
-                                                <p className="text-sm text-white whitespace-pre-wrap">{item.additional_notes}</p>
-                                              </>
+                                                <p className="text-sm text-white whitespace-pre-wrap break-words">{item.additional_notes}</p>
+                                              </div>
                                             )}
                                           </div>
                                         </td>
