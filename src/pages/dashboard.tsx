@@ -954,8 +954,6 @@ export default function Dashboard() {
       'Employee',
       'Tasks Completed',
       'Status',
-      'Blockers/Risks/Dependencies',
-      'Expected Resolution',
       'Additional Notes'
     ];
 
@@ -970,8 +968,6 @@ export default function Dashboard() {
         update.employee_email,
         update.tasks_completed,
         update.status,
-        update.blocker_type || '',
-        update.expected_resolution_date || '',
         update.additional_notes || ''
       ].join(','))
     ].join('\n');
@@ -1472,12 +1468,6 @@ export default function Dashboard() {
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
                                   Status
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">
-                                  Blockers
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">
-                                  Expected Resolution
-                                </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">
                                   Additional Notes
                                 </th>
@@ -1534,25 +1524,13 @@ export default function Dashboard() {
                                           {item.status}
                                         </span>
                                       </td>
-                                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                        {item.blocker_type ? (
-                                          <span className="bg-red-500/20 text-red-400 px-2 py-1 rounded-full text-xs">
-                                            {item.blocker_type}
-                                          </span>
-                                        ) : (
-                                          <span className="text-gray-400">-</span>
-                                        )}
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                        {item.expected_resolution_date ? new Date(item.expected_resolution_date).toLocaleDateString() : '-'}
-                                      </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                         {item.additional_notes || '-'}
                                       </td>
                                     </tr>
                                     {isExpanded && (
                                       <tr>
-                                        <td colSpan={10} className="px-6 py-4 bg-[#1e2538]">
+                                        <td colSpan={8} className="px-6 py-4 bg-[#1e2538]">
                                           <div className="space-y-4">
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                               <div className="overflow-hidden">
