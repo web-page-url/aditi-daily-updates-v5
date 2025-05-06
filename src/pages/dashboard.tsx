@@ -1463,7 +1463,7 @@ export default function Dashboard() {
                                   Employee
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[300px]">
-                                  Tasks Completed
+                                  Tasks
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
                                   Status
@@ -1534,7 +1534,7 @@ export default function Dashboard() {
                                           <div className="space-y-4">
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                               <div className="overflow-hidden">
-                                                <h4 className="text-sm font-medium text-gray-300 mb-2">Tasks Completed</h4>
+                                                <h4 className="text-sm font-medium text-gray-300 mb-2">Current Tasks</h4>
                                                 <p className="text-sm text-white whitespace-pre-wrap break-words">{item.tasks_completed}</p>
                                               </div>
                                               
