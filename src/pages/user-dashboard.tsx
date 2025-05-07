@@ -5,6 +5,7 @@ import { useAuth } from '../lib/authContext';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { useRouter } from 'next/router';
 import { toast } from 'react-hot-toast';
+import EditUpdateModal from '../components/EditUpdateModal';
 
 export default function UserDashboard() {
   const { user, signOut } = useAuth();
@@ -19,6 +20,8 @@ export default function UserDashboard() {
   const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [editingUpdate, setEditingUpdate] = useState<DailyUpdate | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -184,6 +187,18 @@ export default function UserDashboard() {
     router.push('/daily-update-form');
   };
 
+  // Add function to handle edit button click
+  const handleEditClick = (e: React.MouseEvent, update: DailyUpdate) => {
+    e.stopPropagation(); // Prevent row expansion when clicking edit
+    setEditingUpdate(update);
+    setShowEditModal(true);
+  };
+
+  // Add function to handle successful edit
+  const handleEditSuccess = () => {
+    fetchUserUpdates();
+  };
+
   return (
     <ProtectedRoute allowedRoles={['user', 'manager', 'admin']}>
       <div className="min-h-screen bg-[#1a1f2e] text-white">
@@ -321,6 +336,11 @@ export default function UserDashboard() {
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                         Actions
                       </th>
+                      {(user?.role === 'admin' || user?.role === 'manager') && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                          Edit
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="bg-[#1e2538] divide-y divide-gray-700">
@@ -380,10 +400,22 @@ export default function UserDashboard() {
                               {expandedRows[update.id] ? 'Collapse' : 'Expand'}
                             </button>
                           </td>
+                          {(user?.role === 'admin' || user?.role === 'manager') && (
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                              <button
+                                onClick={(e) => handleEditClick(e, update)}
+                                className="text-blue-400 hover:text-blue-300 transition-colors duration-150 focus:outline-none"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                              </button>
+                            </td>
+                          )}
                         </tr>
                         {expandedRows[update.id] && (
                           <tr className="bg-[#262d40]">
-                            <td colSpan={9} className="px-8 py-4 text-sm text-gray-200">
+                            <td colSpan={user?.role === 'admin' || user?.role === 'manager' ? 10 : 9} className="px-8 py-4 text-sm text-gray-200">
                               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pb-2">
                                 <div>
                                   <h4 className="font-medium text-purple-300 mb-2">Tasks Completed</h4>
@@ -428,6 +460,14 @@ export default function UserDashboard() {
           </div>
         </main>
       </div>
+
+      {/* Edit Modal */}
+      <EditUpdateModal 
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        update={editingUpdate}
+        onSuccess={handleEditSuccess}
+      />
     </ProtectedRoute>
   );
 } 

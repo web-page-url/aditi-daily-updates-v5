@@ -6,6 +6,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useAuth } from '../lib/authContext';
 import ProtectedRoute from '../components/ProtectedRoute';
+import EditUpdateModal from '../components/EditUpdateModal';
 
 interface DashboardUser {
   userName: string;
@@ -48,6 +49,8 @@ export default function Dashboard() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [sessionRecoveryAttempted, setSessionRecoveryAttempted] = useState(false);
   const [recoveryInProgress, setRecoveryInProgress] = useState(false);
+  const [editingUpdate, setEditingUpdate] = useState<DailyUpdate | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Load saved dashboard state from localStorage
   useEffect(() => {
@@ -1188,6 +1191,18 @@ export default function Dashboard() {
     }
   };
 
+  // Add a function to handle edit button click
+  const handleEditClick = (e: React.MouseEvent, update: DailyUpdate) => {
+    e.stopPropagation(); // Prevent row expansion when clicking edit
+    setEditingUpdate(update);
+    setShowEditModal(true);
+  };
+
+  // Add a function to handle successful edit
+  const handleEditSuccess = () => {
+    fetchData(selectedTeam);
+  };
+
   return (
     <ProtectedRoute allowedRoles={['admin', 'manager']}>
       <Head>
@@ -1479,6 +1494,9 @@ export default function Dashboard() {
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">
                                   Additional Notes
                                 </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[70px]">
+                                  Actions
+                                </th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-700">
@@ -1541,10 +1559,25 @@ export default function Dashboard() {
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                         {item.additional_notes || '-'}
                                       </td>
+                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                        <button
+                                          onClick={(e) => handleEditClick(e, item)}
+                                          className="text-blue-400 hover:text-blue-300 transition-colors duration-150 focus:outline-none"
+                                        >
+
+                                            {/* Uncomment this to get the Edit Function */}
+                                          {/* <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                          </svg> */}
+                                          {/* Uncomment this to get the Edit Function */}
+
+
+                                        </button>
+                                      </td>
                                     </tr>
                                     {isExpanded && (
                                       <tr>
-                                        <td colSpan={10} className="px-6 py-4 bg-[#1e2538]">
+                                        <td colSpan={11} className="px-6 py-4 bg-[#1e2538]">
                                           <div className="space-y-4">
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                               <div className="overflow-hidden">
@@ -1701,6 +1734,14 @@ export default function Dashboard() {
           </footer>
         </div>
       </div>
+      
+      {/* Edit Modal */}
+      <EditUpdateModal 
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        update={editingUpdate}
+        onSuccess={handleEditSuccess}
+      />
     </ProtectedRoute>
   );
 } 
