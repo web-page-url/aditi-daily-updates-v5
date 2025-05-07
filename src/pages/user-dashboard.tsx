@@ -298,22 +298,25 @@ export default function UserDashboard() {
                         Created
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                        Date Range
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                         Team
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                        Points
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                         Tasks
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                        Blockers
+                        Points
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        Priority
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        Start Date
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        End Date
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                         Actions
@@ -331,20 +334,11 @@ export default function UserDashboard() {
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                             {formatDate(update.created_at)}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                            {update.start_date && update.end_date ? (
-                              <>
-                                {new Date(update.start_date).toLocaleDateString()} - {new Date(update.end_date).toLocaleDateString()}
-                              </>
-                            ) : (
-                              <span className="text-gray-400">Not specified</span>
-                            )}
-                          </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
                             {update.aditi_teams?.team_name || 'Unknown Team'}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {getStatusBadge(update.status)}
+                          <td className="px-6 py-4 text-sm text-gray-200 max-w-xs truncate">
+                            {update.tasks_completed}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                             {update.story_points !== null ? (
@@ -355,17 +349,25 @@ export default function UserDashboard() {
                               <span className="text-gray-400">-</span>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-200 max-w-xs truncate">
-                            {update.tasks_completed}
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              update.priority === 'High' ? 'bg-red-900 text-red-200' :
+                              update.priority === 'Medium' ? 'bg-yellow-900 text-yellow-200' :
+                              'bg-green-900 text-green-200'
+                            }`}>
+                              {update.priority || 'Medium'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {getStatusBadge(update.status)}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                            {update.blocker_type ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900 text-red-200">
-                                {update.blocker_type}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">None</span>
-                            )}
+                            {update.start_date ? new Date(update.start_date).toLocaleDateString() : 
+                            <span className="text-gray-400">Not specified</span>}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                            {update.end_date ? new Date(update.end_date).toLocaleDateString() : 
+                            <span className="text-gray-400">Not specified</span>}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                             <button
@@ -381,7 +383,7 @@ export default function UserDashboard() {
                         </tr>
                         {expandedRows[update.id] && (
                           <tr className="bg-[#262d40]">
-                            <td colSpan={8} className="px-8 py-4 text-sm text-gray-200">
+                            <td colSpan={9} className="px-8 py-4 text-sm text-gray-200">
                               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pb-2">
                                 <div>
                                   <h4 className="font-medium text-purple-300 mb-2">Tasks Completed</h4>
