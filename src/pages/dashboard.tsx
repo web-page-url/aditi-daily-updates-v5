@@ -1315,10 +1315,15 @@ export default function Dashboard() {
                     <h3 className="text-gray-400 text-sm">Total Updates</h3>
                     <p className="text-2xl font-bold text-white">{stats.totalUpdates}</p>
                   </div>
-                  <div className="bg-[#262d40] p-4 rounded-lg shadow-lg hover:shadow-custom-purple transition-shadow duration-300">
+                  
+                  {/* Commented out the Issues/Blockers Section */}
+                  {/* <div className="bg-[#262d40] p-4 rounded-lg shadow-lg hover:shadow-custom-purple transition-shadow duration-300">
                     <h3 className="text-gray-400 text-sm">Issues/Blockers</h3>
                     <p className="text-2xl font-bold text-white">{stats.totalBlockers}</p>
-                  </div>
+                  </div> */}
+                   {/* Commented out the Issues/Blockers Section */}
+
+                   
                   <div className="bg-[#262d40] p-4 rounded-lg shadow-lg hover:shadow-custom-purple transition-shadow duration-300">
                     <h3 className="text-gray-400 text-sm">Completed Tasks</h3>
                     <p className="text-2xl font-bold text-green-400">{stats.completedTasks}</p>
@@ -1328,7 +1333,7 @@ export default function Dashboard() {
                     <p className="text-2xl font-bold text-blue-400">{stats.inProgressTasks}</p>
                   </div>
                   <div className="bg-[#262d40] p-4 rounded-lg shadow-lg hover:shadow-custom-purple transition-shadow duration-300">
-                    <h3 className="text-gray-400 text-sm">Stuck</h3>
+                    <h3 className="text-gray-400 text-sm">Stuck (Blockers)</h3>
                     <p className="text-2xl font-bold text-red-400">{stats.stuckTasks}</p>
                   </div>
                 </div>
@@ -1518,7 +1523,7 @@ export default function Dashboard() {
                                         {team?.team_name || '-'}
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className="text-sm text-gray-300">{item.employee_email}</span>
+                                        <span className="text-sm text-gray-300">{item.employee_name}</span>
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                                         <span className="text-gray-300">{item.tasks_completed}</span>
