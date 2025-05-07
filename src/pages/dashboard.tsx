@@ -954,6 +954,7 @@ export default function Dashboard() {
       'Employee',
       'Tasks Completed',
       'Status',
+      'Priority',
       'Additional Notes'
     ];
 
@@ -968,6 +969,7 @@ export default function Dashboard() {
         update.employee_email,
         update.tasks_completed,
         update.status,
+        update.priority,
         update.additional_notes || ''
       ].join(','))
     ].join('\n');
@@ -1468,6 +1470,9 @@ export default function Dashboard() {
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
                                   Status
                                 </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[100px]">
+                                  Priority
+                                </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">
                                   Additional Notes
                                 </th>
@@ -1522,6 +1527,15 @@ export default function Dashboard() {
                                           'bg-red-500/20 text-red-400'
                                         }`}>
                                           {item.status}
+                                        </span>
+                                      </td>
+                                      <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                          item.priority === 'High' ? 'bg-red-500/20 text-red-400' :
+                                          item.priority === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                                          'bg-green-500/20 text-green-400'
+                                        }`}>
+                                          {item.priority}
                                         </span>
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">

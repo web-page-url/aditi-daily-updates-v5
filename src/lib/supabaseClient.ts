@@ -161,6 +161,7 @@ export interface DailyUpdate {
   team_id: string;
   tasks_completed: string;
   status: string;
+  priority: string;
   blocker_type: string | null;
   blocker_description: string | null;
   expected_resolution_date: string | null;

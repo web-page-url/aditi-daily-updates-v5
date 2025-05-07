@@ -39,6 +39,7 @@ export default function DailyUpdateFormPage() {
     start_date: new Date().toISOString().split('T')[0],
     end_date: new Date().toISOString().split('T')[0],
     story_points: '',
+    priority: 'Medium',
   });
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [showBlockerForm, setShowBlockerForm] = useState(false);
@@ -191,6 +192,10 @@ export default function DailyUpdateFormPage() {
     if (formData.story_points && isNaN(Number(formData.story_points))) {
       errors.story_points = "Story points must be a number";
     }
+
+    if (!formData.priority) {
+      errors.priority = "Priority is required";
+    }
     
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -219,7 +224,8 @@ export default function DailyUpdateFormPage() {
           additional_notes: formData.additional_notes,
           start_date: formData.start_date,
           end_date: formData.end_date,
-          story_points: formData.story_points ? Number(formData.story_points) : null
+          story_points: formData.story_points ? Number(formData.story_points) : null,
+          priority: formData.priority
         };
         
         const { data, error } = await supabase
@@ -245,7 +251,8 @@ export default function DailyUpdateFormPage() {
           expected_resolution_date: blocker.expected_resolution_date,
           start_date: formData.start_date,
           end_date: formData.end_date,
-          story_points: formData.story_points ? Number(formData.story_points) : null
+          story_points: formData.story_points ? Number(formData.story_points) : null,
+          priority: formData.priority
         }));
         
         const { data, error } = await supabase
@@ -273,7 +280,8 @@ export default function DailyUpdateFormPage() {
           additional_notes: '',
           start_date: new Date().toISOString().split('T')[0],
           end_date: new Date().toISOString().split('T')[0],
-          story_points: ''
+          story_points: '',
+          priority: 'Medium',
         });
         setBlockers([]);
         
@@ -544,6 +552,29 @@ export default function DailyUpdateFormPage() {
                     <option value="completed">Completed</option>
                     <option value="blocked">Blocked</option>
                   </select>
+                </div>
+
+                {/* Priority */}
+                <div className="mt-6">
+                  <label htmlFor="priority" className="block text-sm font-medium text-gray-200 mb-1">
+                    Priority*
+                  </label>
+                  <select
+                    id="priority"
+                    name="priority"
+                    value={formData.priority}
+                    onChange={handleChange}
+                    className={`shadow-sm block w-full sm:text-sm rounded-md border bg-[#262d40] text-white ${
+                      formErrors.priority ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
+                    } p-2`}
+                  >
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                  {formErrors.priority && (
+                    <p className="mt-1 text-sm text-red-400">{formErrors.priority}</p>
+                  )}
                 </div>
 
                 {/* Additional Notes */}
