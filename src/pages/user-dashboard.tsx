@@ -178,6 +178,10 @@ export default function UserDashboard() {
         return <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-900 text-green-200">Completed</span>;
       case 'blocked':
         return <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-900 text-red-200">Blocked</span>;
+      case 'to-do':
+        return <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-700 text-gray-300">To Do</span>;
+      case 'reopen':
+        return <span className="px-2 py-1 text-xs font-medium rounded-full bg-purple-900 text-purple-200">Reopened</span>;
       default:
         return <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-700 text-gray-300">{status}</span>;
     }
@@ -197,6 +201,17 @@ export default function UserDashboard() {
   // Add function to handle successful edit
   const handleEditSuccess = () => {
     fetchUserUpdates();
+  };
+
+  // Function to determine if a task is editable by the current user
+  const isTaskEditable = (status: string) => {
+    // Admins and managers can edit any task
+    if (user?.role === 'admin' || user?.role === 'manager') {
+      return true;
+    }
+    
+    // Regular users can only edit tasks that are in To Do or In Progress status
+    return status === 'to-do' || status === 'in-progress';
   };
 
   return (
@@ -334,13 +349,8 @@ export default function UserDashboard() {
                         End Date
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                        Actions
+                        Edit
                       </th>
-                      {(user?.role === 'admin' || user?.role === 'manager') && (
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                          Edit
-                        </th>
-                      )}
                     </tr>
                   </thead>
                   <tbody className="bg-[#1e2538] divide-y divide-gray-700">
@@ -390,59 +400,51 @@ export default function UserDashboard() {
                             <span className="text-gray-400">Not specified</span>}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation(); // Prevent row click from triggering
-                                toggleRowExpansion(update.id);
-                              }}
-                              className="text-purple-400 hover:text-purple-300 transition-colors duration-150"
-                            >
-                              {expandedRows[update.id] ? 'Collapse' : 'Expand'}
-                            </button>
+                            <div className="flex items-center space-x-3">
+                              {((user?.role === 'admin' || user?.role === 'manager') || isTaskEditable(update.status)) && (
+                                <button
+                                  onClick={(e) => handleEditClick(e, update)}
+                                  className="text-blue-400 hover:text-blue-300 transition-colors duration-150 focus:outline-none"
+                                  disabled={user?.role !== 'admin' && user?.role !== 'manager' && update.status === 'completed'}
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" 
+                                    className={`h-5 w-5 ${user?.role !== 'admin' && user?.role !== 'manager' && update.status === 'completed' ? 'opacity-40 cursor-not-allowed' : ''}`} 
+                                    fill="none" 
+                                    viewBox="0 0 24 24" 
+                                    stroke="currentColor"
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                </button>
+                              )}
+                              {!(user?.role === 'admin' || user?.role === 'manager' || isTaskEditable(update.status)) && (
+                                <span className="text-gray-500">-</span>
+                              )}
+                            </div>
                           </td>
-                          {(user?.role === 'admin' || user?.role === 'manager') && (
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                              <button
-                                onClick={(e) => handleEditClick(e, update)}
-                                className="text-blue-400 hover:text-blue-300 transition-colors duration-150 focus:outline-none"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                </svg>
-                              </button>
-                            </td>
-                          )}
                         </tr>
                         {expandedRows[update.id] && (
                           <tr className="bg-[#262d40]">
-                            <td colSpan={user?.role === 'admin' || user?.role === 'manager' ? 10 : 9} className="px-8 py-4 text-sm text-gray-200">
-                              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pb-2">
+                            <td colSpan={10} className="px-8 py-4 text-sm text-gray-200">
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-2">
                                 <div>
-                                  <h4 className="font-medium text-purple-300 mb-2">Tasks Completed</h4>
+                                  <h4 className="font-medium text-purple-300 mb-2">Tasks</h4>
                                   <p className="whitespace-pre-wrap">{update.tasks_completed || 'None'}</p>
                                 </div>
                                 <div>
                                   <h4 className="font-medium text-purple-300 mb-2">Task Details</h4>
-                                  <p className="mb-1"><span className="font-medium">Date Range:</span> {update.start_date ? new Date(update.start_date).toLocaleDateString() : 'Not specified'} - {update.end_date ? new Date(update.end_date).toLocaleDateString() : 'Not specified'}</p>
-                                  <p className="mb-1"><span className="font-medium">Story Points:</span> {update.story_points !== null ? update.story_points : 'Not specified'}</p>
-                                  <p className="mb-1"><span className="font-medium">Status:</span> {update.status}</p>
-                                </div>
-                                <div>
-                                  <h4 className="font-medium text-purple-300 mb-2">Blockers</h4>
-                                  {update.blocker_type ? (
-                                    <div>
-                                      <p className="mb-1"><span className="font-medium">Type:</span> {update.blocker_type}</p>
-                                      <p className="mb-1"><span className="font-medium">Description:</span> {update.blocker_description || 'No description provided'}</p>
-                                      {update.expected_resolution_date && (
-                                        <p><span className="font-medium">Expected Resolution:</span> {formatDate(update.expected_resolution_date)}</p>
-                                      )}
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <p className="mb-1"><span className="font-medium">Status:</span> {update.status}</p>
+                                    <p className="mb-1"><span className="font-medium">Priority:</span> {update.priority}</p>
+                                    <p className="mb-1"><span className="font-medium">Story Points:</span> {update.story_points !== null ? update.story_points : 'Not specified'}</p>
+                                    <div className="col-span-1">
+                                      <p className="mb-1"><span className="font-medium">Start Date:</span> {update.start_date ? new Date(update.start_date).toLocaleDateString() : 'Not specified'}</p>
+                                      <p className="mb-1"><span className="font-medium">End Date:</span> {update.end_date ? new Date(update.end_date).toLocaleDateString() : 'Not specified'}</p>
                                     </div>
-                                  ) : (
-                                    <p>No blockers reported</p>
-                                  )}
+                                  </div>
                                 </div>
                                 {update.additional_notes && (
-                                  <div className="lg:col-span-3">
+                                  <div className="lg:col-span-2">
                                     <h4 className="font-medium text-purple-300 mb-2">Additional Notes</h4>
                                     <p className="whitespace-pre-wrap">{update.additional_notes}</p>
                                   </div>

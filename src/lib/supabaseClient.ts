@@ -153,6 +153,9 @@ export interface TeamMember {
   }
 }
 
+export type TaskStatus = 'in-progress' |  'to-do' |  'completed' | 'blocked' |'reopen';
+export type PriorityLevel = 'High' | 'Medium' | 'Low';
+
 export interface DailyUpdate {
   id: string;
   created_at: string;
@@ -160,8 +163,8 @@ export interface DailyUpdate {
   employee_name: string;
   team_id: string;
   tasks_completed: string;
-  status: string;
-  priority: string;
+  status: TaskStatus;
+  priority: PriorityLevel;
   blocker_type: string | null;
   blocker_description: string | null;
   expected_resolution_date: string | null;

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { DailyUpdate, supabase, Team } from '../lib/supabaseClient';
 import { toast } from 'react-hot-toast';
+import { useAuth } from '../lib/authContext';
 
 interface EditUpdateModalProps {
   isOpen: boolean;
@@ -10,11 +11,32 @@ interface EditUpdateModalProps {
 }
 
 export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: EditUpdateModalProps) {
+  const { user } = useAuth();
   const [formData, setFormData] = useState<Partial<DailyUpdate>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [originalStatus, setOriginalStatus] = useState<string>('');
+
+  // Determine if the user can edit this update
+  const canEditUpdate = user?.role === 'admin' || user?.role === 'manager' || 
+    (update?.status === 'to-do' || update?.status === 'in-progress');
+
+  // Determine if specific fields can be edited
+  const isFieldEditable = (fieldName: string) => {
+    // Admins and managers can edit all fields
+    if (user?.role === 'admin' || user?.role === 'manager') {
+      return true;
+    }
+    
+    // For regular users, only allow editing if status is to-do or in-progress
+    if (update?.status === 'to-do' || update?.status === 'in-progress') {
+      return true;
+    }
+    
+    return false;
+  };
 
   useEffect(() => {
     if (update) {
@@ -33,6 +55,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
         end_date: update.end_date,
         story_points: update.story_points,
       });
+      setOriginalStatus(update.status);
     }
     fetchTeams();
   }, [update]);
@@ -57,10 +80,20 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    
+    // If status is changed to completed, set end date to today
+    if (name === 'status' && value === 'completed') {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value,
+        end_date: new Date().toISOString().split('T')[0]
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
     
     // Clear errors when field is updated
     if (formErrors[name]) {
@@ -132,20 +165,32 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
 
     setIsSubmitting(true);
     try {
+      // Handle special status transitions
+      let updatedFormData = { ...formData };
+      
+      // If reopening a task, change status to in-progress and clear end date
+      if (formData.status === 'reopen') {
+        updatedFormData = {
+          ...updatedFormData,
+          status: 'in-progress',
+          end_date: null
+        };
+      }
+      
       const payload = {
-        employee_name: formData.employee_name,
-        employee_email: formData.employee_email,
-        team_id: formData.team_id,
-        tasks_completed: formData.tasks_completed,
-        status: formData.status,
-        priority: formData.priority,
-        blocker_type: formData.blocker_type || null,
-        blocker_description: formData.blocker_description || null,
-        expected_resolution_date: formData.expected_resolution_date || null,
-        additional_notes: formData.additional_notes || null,
-        start_date: formData.start_date,
-        end_date: formData.end_date,
-        story_points: formData.story_points ? Number(formData.story_points) : null,
+        employee_name: updatedFormData.employee_name,
+        employee_email: updatedFormData.employee_email,
+        team_id: updatedFormData.team_id,
+        tasks_completed: updatedFormData.tasks_completed,
+        status: updatedFormData.status,
+        priority: updatedFormData.priority,
+        blocker_type: updatedFormData.blocker_type || null,
+        blocker_description: updatedFormData.blocker_description || null,
+        expected_resolution_date: updatedFormData.expected_resolution_date || null,
+        additional_notes: updatedFormData.additional_notes || null,
+        start_date: updatedFormData.start_date,
+        end_date: updatedFormData.end_date,
+        story_points: updatedFormData.story_points ? Number(updatedFormData.story_points) : null,
       };
       
       const { error } = await supabase
@@ -186,6 +231,37 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
         </div>
         
         <form onSubmit={handleSubmit} className="p-6">
+          {/* Visual indicator for edit permissions */}
+          {user?.role !== 'admin' && user?.role !== 'manager' && (
+            <div className={`mb-6 p-4 rounded-md ${canEditUpdate ? 'bg-blue-900/30 border border-blue-700' : 'bg-red-900/30 border border-red-700'}`}>
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  {canEditUpdate ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-gray-200">
+                    {canEditUpdate ? 'You can edit this update' : 'This update is not editable'}
+                  </h3>
+                  <div className="mt-2 text-sm text-gray-300">
+                    <p>
+                      {canEditUpdate 
+                        ? 'Tasks with "To Do" or "In Progress" status can be edited.' 
+                        : 'Tasks with "Completed" or "Blocked" status cannot be edited by regular users. Please contact your manager or admin for assistance.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Employee Name */}
             <div>
@@ -202,6 +278,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                   formErrors.employee_name ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
                 } p-2`}
                 placeholder="Employee name"
+                disabled={!isFieldEditable('employee_name')}
               />
               {formErrors.employee_name && (
                 <p className="mt-1 text-sm text-red-400">{formErrors.employee_name}</p>
@@ -223,6 +300,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                   formErrors.employee_email ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
                 } p-2`}
                 placeholder="Email address"
+                disabled={!isFieldEditable('employee_email')}
               />
               {formErrors.employee_email && (
                 <p className="mt-1 text-sm text-red-400">{formErrors.employee_email}</p>
@@ -242,7 +320,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                 className={`shadow-sm block w-full sm:text-sm rounded-md border bg-[#262d40] text-white ${
                   formErrors.team_id ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
                 } p-2`}
-                disabled={loadingTeams}
+                disabled={loadingTeams || !isFieldEditable('team_id')}
               >
                 <option value="" disabled>Select team</option>
                 {teams.map(team => (
@@ -267,11 +345,15 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                 value={formData.status || 'in-progress'}
                 onChange={handleChange}
                 className="shadow-sm block w-full sm:text-sm rounded-md border border-gray-600 bg-[#262d40] text-white focus:ring-purple-500 focus:border-purple-500 p-2"
+                disabled={!isFieldEditable('status')}
               >
                 <option value="in-progress">In Progress</option>
                 <option value="completed">Completed</option>
                 <option value="blocked">Blocked</option>
                 <option value="to-do">To Do</option>
+                {(user?.role === 'admin' || user?.role === 'manager') && 
+                  <option value="reopen">Reopen</option>
+                }
               </select>
             </div>
 
@@ -288,6 +370,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                 className={`shadow-sm block w-full sm:text-sm rounded-md border bg-[#262d40] text-white ${
                   formErrors.priority ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
                 } p-2`}
+                disabled={!isFieldEditable('priority')}
               >
                 <option value="High">High</option>
                 <option value="Medium">Medium</option>
@@ -315,6 +398,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                 placeholder="Effort estimation"
                 step="0.5"
                 min="0"
+                disabled={!isFieldEditable('story_points')}
               />
               {formErrors.story_points && (
                 <p className="mt-1 text-sm text-red-400">{formErrors.story_points}</p>
@@ -335,6 +419,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                 className={`shadow-sm block w-full sm:text-sm rounded-md border bg-[#262d40] text-white ${
                   formErrors.start_date ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
                 } p-2`}
+                disabled={!isFieldEditable('start_date')}
               />
               {formErrors.start_date && (
                 <p className="mt-1 text-sm text-red-400">{formErrors.start_date}</p>
@@ -354,6 +439,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                 className={`shadow-sm block w-full sm:text-sm rounded-md border bg-[#262d40] text-white ${
                   formErrors.end_date ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
                 } p-2`}
+                disabled={!isFieldEditable('end_date')}
               />
               {formErrors.end_date && (
                 <p className="mt-1 text-sm text-red-400">{formErrors.end_date}</p>
@@ -376,6 +462,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                 formErrors.tasks_completed ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
               } p-2`}
               placeholder="List the tasks completed"
+              disabled={!isFieldEditable('tasks_completed')}
             />
             {formErrors.tasks_completed && (
               <p className="mt-1 text-sm text-red-400">{formErrors.tasks_completed}</p>
@@ -451,6 +538,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
               onChange={handleChange}
               className="shadow-sm block w-full sm:text-sm rounded-md border border-gray-600 bg-[#262d40] text-white focus:ring-purple-500 focus:border-purple-500 p-2"
               placeholder="Any additional comments or notes"
+              disabled={!isFieldEditable('additional_notes')}
             />
           </div>
 
@@ -465,9 +553,9 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !canEditUpdate}
               className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                isSubmitting ? 'bg-purple-500 opacity-70 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
+                isSubmitting || !canEditUpdate ? 'bg-purple-500 opacity-70 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
               }`}
             >
               {isSubmitting ? (

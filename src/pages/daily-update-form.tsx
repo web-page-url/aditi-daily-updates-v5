@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import { supabase, DailyUpdate, Team } from '../lib/supabaseClient';
+import { supabase, DailyUpdate, Team, TaskStatus, PriorityLevel } from '../lib/supabaseClient';
 import { useAuth } from '../lib/authContext';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { useRouter } from 'next/router';
@@ -299,10 +299,20 @@ export default function DailyUpdateFormPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    
+    // If status is changed to completed, set end date to today
+    if (name === 'status' && value === 'completed') {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value,
+        end_date: new Date().toISOString().split('T')[0]
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
     
     // Clear errors when field is updated
     if (formErrors[name]) {
@@ -538,20 +548,25 @@ export default function DailyUpdateFormPage() {
                 {/* Status */}
                 <div className="mt-6">
                   <label htmlFor="status" className="block text-sm font-medium text-gray-200 mb-1">
-                    Status
+                    Status*
                   </label>
                   <select
                     id="status"
                     name="status"
                     value={formData.status}
                     onChange={handleChange}
-                    className="shadow-sm focus:ring-purple-500 focus:border-purple-500 block w-full sm:text-sm border-gray-600 bg-[#262d40] text-white rounded-md p-2"
+                    className={`shadow-sm block w-full sm:text-sm rounded-md border bg-[#262d40] text-white ${
+                      formErrors.status ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-600 focus:ring-purple-500 focus:border-purple-500'
+                    } p-2`}
                   >
                     <option value="in-progress">In Progress</option>
-                    <option value="to-do">To do</option>
                     <option value="completed">Completed</option>
                     <option value="blocked">Blocked</option>
+                    <option value="to-do">To Do</option>
                   </select>
+                  {formErrors.status && (
+                    <p className="mt-1 text-sm text-red-400">{formErrors.status}</p>
+                  )}
                 </div>
 
                 {/* Priority */}
