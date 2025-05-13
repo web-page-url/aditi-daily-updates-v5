@@ -402,7 +402,7 @@ export default function UserDashboard() {
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                             <div className="flex items-center space-x-3">
                               {((user?.role === 'admin' || user?.role === 'manager') || isTaskEditable(update.status)) && (
-                                <button
+                            <button
                                   onClick={(e) => handleEditClick(e, update)}
                                   className="text-blue-400 hover:text-blue-300 transition-colors duration-150 focus:outline-none"
                                   disabled={user?.role !== 'admin' && user?.role !== 'manager' && update.status === 'completed'}
@@ -415,7 +415,7 @@ export default function UserDashboard() {
                                   >
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                   </svg>
-                                </button>
+                            </button>
                               )}
                               {!(user?.role === 'admin' || user?.role === 'manager' || isTaskEditable(update.status)) && (
                                 <span className="text-gray-500">-</span>
@@ -426,29 +426,96 @@ export default function UserDashboard() {
                         {expandedRows[update.id] && (
                           <tr className="bg-[#262d40]">
                             <td colSpan={10} className="px-8 py-4 text-sm text-gray-200">
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-2">
-                                <div>
-                                  <h4 className="font-medium text-purple-300 mb-2">Tasks</h4>
-                                  <p className="whitespace-pre-wrap">{update.tasks_completed || 'None'}</p>
-                                </div>
-                                <div>
-                                  <h4 className="font-medium text-purple-300 mb-2">Task Details</h4>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <p className="mb-1"><span className="font-medium">Status:</span> {update.status}</p>
-                                    <p className="mb-1"><span className="font-medium">Priority:</span> {update.priority}</p>
-                                    <p className="mb-1"><span className="font-medium">Story Points:</span> {update.story_points !== null ? update.story_points : 'Not specified'}</p>
-                                    <div className="col-span-1">
-                                      <p className="mb-1"><span className="font-medium">Start Date:</span> {update.start_date ? new Date(update.start_date).toLocaleDateString() : 'Not specified'}</p>
-                                      <p className="mb-1"><span className="font-medium">End Date:</span> {update.end_date ? new Date(update.end_date).toLocaleDateString() : 'Not specified'}</p>
+                              <div className="w-full">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                  {/* Left Column - Tasks */}
+                                  <div>
+                                    <h4 className="text-sm font-medium text-purple-300 mb-3">Tasks</h4>
+                                    <div className="bg-[#1e2538] p-4 rounded-md">
+                                      <p className="text-sm text-white whitespace-pre-wrap break-words leading-relaxed">{update.tasks_completed || 'None'}</p>
+                                    </div>
+                                    
+                                    {update.additional_notes && (
+                                      <div className="mt-4">
+                                        <h4 className="text-sm font-medium text-purple-300 mb-3">Additional Notes</h4>
+                                        <div className="bg-[#1e2538] p-4 rounded-md">
+                                          <p className="text-sm text-white whitespace-pre-wrap break-words leading-relaxed">{update.additional_notes}</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Right Column - Task Details */}
+                                  <div>
+                                    <h4 className="text-sm font-medium text-purple-300 mb-3">Task Details</h4>
+                                    <div className="bg-[#1e2538] p-4 rounded-md">
+                                      <div className="grid grid-cols-[120px_1fr] md:grid-cols-[150px_1fr] gap-y-4">
+                                        <div className="text-sm text-gray-400">Start Date:</div>
+                                        <div className="text-sm text-white font-medium">
+                                          {update.start_date ? new Date(update.start_date).toLocaleDateString() : 'Not specified'}
+                                        </div>
+                                        
+                                        <div className="text-sm text-gray-400">End Date:</div>
+                                        <div className="text-sm text-white font-medium">
+                                          {update.end_date ? new Date(update.end_date).toLocaleDateString() : 'Not specified'}
+                                        </div>
+                                        
+                                        <div className="text-sm text-gray-400">Story Points:</div>
+                                        <div className="text-sm text-white font-medium">
+                                          {update.story_points !== null ? update.story_points : 'Not specified'}
+                                        </div>
+                                        
+                                        <div className="text-sm text-gray-400">Status:</div>
+                                        <div className={`text-sm font-medium ${
+                                          update.status === 'completed' ? 'text-green-400' :
+                                          update.status === 'in-progress' ? 'text-blue-400' :
+                                          update.status === 'blocked' ? 'text-red-400' :
+                                          update.status === 'reopen' ? 'text-purple-400' :
+                                          'text-gray-400'
+                                        }`}>
+                                          {update.status}
+                                        </div>
+                                        
+                                        <div className="text-sm text-gray-400">Priority:</div>
+                                        <div className="text-sm font-medium">
+                                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                            update.priority === 'High' ? 'bg-red-500/20 text-red-400' :
+                                            update.priority === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                                            'bg-green-500/20 text-green-400'
+                                          }`}>
+                                            {update.priority || 'Medium'}
+                                          </span>
+                                        </div>
+                                        
+                                        {((user?.role === 'admin' || user?.role === 'manager') || isTaskEditable(update.status)) && (
+                                          <>
+                                            <div className="text-sm text-gray-400">Actions:</div>
+                                            <div>
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleEditClick(e, update);
+                                                }}
+                                                className="inline-flex items-center text-blue-400 hover:text-blue-300 text-sm transition-colors duration-150 focus:outline-none bg-[#262d40] px-3 py-1.5 rounded"
+                                                disabled={user?.role !== 'admin' && user?.role !== 'manager' && update.status === 'completed'}
+                                              >
+                                                <svg xmlns="http://www.w3.org/2000/svg" 
+                                                  className={`h-4 w-4 mr-1.5 ${user?.role !== 'admin' && user?.role !== 'manager' && update.status === 'completed' ? 'opacity-40' : ''}`} 
+                                                  fill="none" 
+                                                  viewBox="0 0 24 24" 
+                                                  stroke="currentColor"
+                                                >
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                </svg>
+                                                Edit Task
+                                              </button>
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
-                                {update.additional_notes && (
-                                  <div className="lg:col-span-2">
-                                    <h4 className="font-medium text-purple-300 mb-2">Additional Notes</h4>
-                                    <p className="whitespace-pre-wrap">{update.additional_notes}</p>
-                                  </div>
-                                )}
                               </div>
                             </td>
                           </tr>

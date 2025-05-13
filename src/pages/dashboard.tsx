@@ -1463,43 +1463,43 @@ export default function Dashboard() {
                 
                 {filteredData.length > 0 ? (
                   <div className="bg-[#1e2538] rounded-lg shadow-lg overflow-hidden">
-                    <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-                      <div className="inline-block min-w-full align-middle">
+                    <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', maxWidth: '100%' }}>
+                      <div className="inline-block align-middle" style={{ maxWidth: '100%' }}>
                         <div className="overflow-hidden">
-                          <table className="min-w-full divide-y divide-gray-700 table-fixed">
+                          <table className="w-full divide-y divide-gray-700 table-fixed">
                             <thead className="bg-[#262d40]">
                               <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[90px]">
                                   Created
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
                                   Team
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[150px]">
                                   Employee
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[300px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[250px]">
                                   Tasks
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[80px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[60px]">
                                   Points
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[100px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[80px]">
                                   Priority
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[100px]">
                                   Status
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[100px]">
                                   Start Date
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[100px]">
                                   End Date
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[200px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[120px]">
                                   Additional Notes
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[70px]">
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-[60px]">
                                   Actions
                                 </th>
                               </tr>
@@ -1523,10 +1523,14 @@ export default function Dashboard() {
                                         {team?.team_name || '-'}
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className="text-sm text-gray-300">{item.employee_name}</span>
+                                        <span className="text-sm text-gray-300 block max-w-[140px] truncate" title={item.employee_name}>
+                                          {item.employee_name}
+                                        </span>
                                       </td>
-                                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                        <span className="text-gray-300">{item.tasks_completed}</span>
+                                      <td className="px-6 py-4 text-sm">
+                                        <span className="text-gray-300 block max-w-[230px] truncate" title={item.tasks_completed}>
+                                          {item.tasks_completed}
+                                        </span>
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                         {item.story_points !== null ? (
@@ -1562,7 +1566,11 @@ export default function Dashboard() {
                                         {item.end_date ? new Date(item.end_date).toLocaleDateString() : '-'}
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                        {item.additional_notes || '-'}
+                                        {item.additional_notes ? (
+                                          <span className="block max-w-[100px] truncate" title={item.additional_notes}>
+                                            {item.additional_notes}
+                                          </span>
+                                        ) : '-'}
                                       </td>
                                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                         <button
@@ -1583,77 +1591,105 @@ export default function Dashboard() {
                                     {isExpanded && (
                                       <tr>
                                         <td colSpan={11} className="px-6 py-4 bg-[#1e2538]">
-                                          <div className="space-y-4">
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                              <div className="overflow-hidden">
-                                                <h4 className="text-sm font-medium text-gray-300 mb-2">Current Tasks</h4>
-                                                <p className="text-sm text-white whitespace-pre-wrap break-words">{item.tasks_completed}</p>
+                                          <div className="w-full">
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                              {/* Left Column - Current Tasks */}
+                                              <div>
+                                                <h4 className="text-sm font-medium text-gray-300 mb-3">Current Tasks</h4>
+                                                <div className="bg-[#262d40] p-4 rounded-md">
+                                                  <p className="text-sm text-white whitespace-pre-wrap break-words leading-relaxed">{item.tasks_completed}</p>
+                                                </div>
+                                                
+                                                {item.additional_notes && (
+                                                  <div className="mt-4">
+                                                    <h4 className="text-sm font-medium text-gray-300 mb-3">Additional Notes</h4>
+                                                    <div className="bg-[#262d40] p-4 rounded-md">
+                                                      <p className="text-sm text-white whitespace-pre-wrap break-words leading-relaxed">{item.additional_notes}</p>
+                                                    </div>
+                                                  </div>
+                                                )}
                                               </div>
                                               
-                                              <div className="overflow-hidden">
-                                                <h4 className="text-sm font-medium text-gray-300 mb-2">Task Details</h4>
-                                                <div className="space-y-2">
-                                                  <p className="text-sm mb-1 flex flex-wrap">
-                                                    <span className="text-gray-400 mr-2 min-w-[120px]">Start Date:</span> 
-                                                    <span className="text-white">
+                                              {/* Right Column - Task Details */}
+                                              <div>
+                                                <h4 className="text-sm font-medium text-gray-300 mb-3">Task Details</h4>
+                                                <div className="bg-[#262d40] p-4 rounded-md">
+                                                  <div className="grid grid-cols-[120px_1fr] md:grid-cols-[150px_1fr] gap-y-4">
+                                                    <div className="text-sm text-gray-400">Start Date:</div>
+                                                    <div className="text-sm text-white font-medium">
                                                       {item.start_date ? new Date(item.start_date).toLocaleDateString() : '-'}
-                                                    </span>
-                                                  </p>
-                                                  <p className="text-sm mb-1 flex flex-wrap">
-                                                    <span className="text-gray-400 mr-2 min-w-[120px]">End Date:</span> 
-                                                    <span className="text-white">
+                                                    </div>
+                                                    
+                                                    <div className="text-sm text-gray-400">End Date:</div>
+                                                    <div className="text-sm text-white font-medium">
                                                       {item.end_date ? new Date(item.end_date).toLocaleDateString() : '-'}
-                                                    </span>
-                                                  </p>
-                                                  <p className="text-sm mb-1 flex flex-wrap">
-                                                    <span className="text-gray-400 mr-2 min-w-[120px]">Story Points:</span> 
-                                                    <span className="text-white">
+                                                    </div>
+                                                    
+                                                    <div className="text-sm text-gray-400">Story Points:</div>
+                                                    <div className="text-sm text-white font-medium">
                                                       {item.story_points !== null ? item.story_points : 'Not specified'}
-                                                    </span>
-                                                  </p>
-                                                  <p className="text-sm mb-1 flex flex-wrap">
-                                                    <span className="text-gray-400 mr-2 min-w-[120px]">Status:</span> 
-                                                    <span className={`font-medium ${
+                                                    </div>
+                                                    
+                                                    <div className="text-sm text-gray-400">Status:</div>
+                                                    <div className={`text-sm font-medium ${
                                                       item.status === 'completed' ? 'text-green-400' :
                                                       item.status === 'in-progress' ? 'text-blue-400' :
                                                       'text-red-400'
                                                     }`}>
                                                       {item.status}
-                                                    </span>
-                                                  </p>
+                                                    </div>
+                                                    
+                                                    <div className="text-sm text-gray-400">Priority:</div>
+                                                    <div className="text-sm font-medium">
+                                                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                        item.priority === 'High' ? 'bg-red-500/20 text-red-400' :
+                                                        item.priority === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                        'bg-green-500/20 text-green-400'
+                                                      }`}>
+                                                        {item.priority || 'Medium'}
+                                                      </span>
+                                                    </div>
+                                                    
+                                                    <div className="text-sm text-gray-400">Actions:</div>
+                                                    <div>
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleEditClick(e, item);
+                                                        }}
+                                                        className="inline-flex items-center text-blue-400 hover:text-blue-300 text-sm transition-colors duration-150 focus:outline-none bg-[#1e2538] px-3 py-1.5 rounded"
+                                                      >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                        </svg>
+                                                        Edit Task
+                                                      </button>
+                                                    </div>
+                                                  </div>
                                                 </div>
-                                              </div>
-                                              
-                                              {item.blocker_type && (
-                                                <div className="overflow-hidden">
-                                                  <h4 className="text-sm font-medium text-gray-300 mb-2">Blockers / Risks / Dependencies</h4>
-                                                  <div className="space-y-2">
-                                                    <div className="bg-[#262d40] p-3 rounded-md">
-                                                      <div className="flex items-center space-x-2 mb-1">
-                                                        <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                                                
+                                                {item.blocker_type && (
+                                                  <div className="mt-4">
+                                                    <h4 className="text-sm font-medium text-gray-300 mb-3">Blockers / Risks / Dependencies</h4>
+                                                    <div className="bg-[#262d40] p-4 rounded-md">
+                                                      <div className="flex items-center space-x-2 mb-3">
+                                                        <span className={`inline-block px-2.5 py-1 text-xs rounded-full ${
                                                           item.blocker_type === 'Risks' ? 'bg-yellow-500/20 text-yellow-400' :
                                                           item.blocker_type === 'Blockers' ? 'bg-red-500/20 text-red-400' :
                                                           'bg-blue-500/20 text-blue-400'
                                                         }`}>
                                                           {item.blocker_type}
                                                         </span>
-                                                        <span className="text-xs text-gray-400">
-                                                          Resolution: {item.expected_resolution_date ? new Date(item.expected_resolution_date).toLocaleDateString() : 'Not set'}
+                                                        <span className="text-sm text-gray-400">
+                                                          Resolution Date: {item.expected_resolution_date ? new Date(item.expected_resolution_date).toLocaleDateString() : 'Not set'}
                                                         </span>
                                                       </div>
-                                                      <p className="text-sm text-white whitespace-pre-wrap break-words">{item.blocker_description}</p>
+                                                      <p className="text-sm text-white whitespace-pre-wrap break-words leading-relaxed">{item.blocker_description}</p>
                                                     </div>
                                                   </div>
-                                                </div>
-                                              )}
-                                            </div>
-
-                                            {item.additional_notes && (
-                                              <div className="overflow-hidden">
-                                                <h4 className="text-sm font-medium text-gray-300 mb-2">Additional Notes</h4>
-                                                <p className="text-sm text-white whitespace-pre-wrap break-words">{item.additional_notes}</p>
+                                                )}
                                               </div>
-                                            )}
+                                            </div>
                                           </div>
                                         </td>
                                       </tr>
