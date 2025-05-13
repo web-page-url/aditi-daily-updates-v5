@@ -1594,9 +1594,15 @@ export default function Dashboard() {
                                                 <h4 className="text-sm font-medium text-gray-300 mb-2">Task Details</h4>
                                                 <div className="space-y-2">
                                                   <p className="text-sm mb-1 flex flex-wrap">
-                                                    <span className="text-gray-400 mr-2 min-w-[120px]">Date Range:</span> 
+                                                    <span className="text-gray-400 mr-2 min-w-[120px]">Start Date:</span> 
                                                     <span className="text-white">
-                                                      {item.start_date ? new Date(item.start_date).toLocaleDateString() : '-'} - {item.end_date ? new Date(item.end_date).toLocaleDateString() : '-'}
+                                                      {item.start_date ? new Date(item.start_date).toLocaleDateString() : '-'}
+                                                    </span>
+                                                  </p>
+                                                  <p className="text-sm mb-1 flex flex-wrap">
+                                                    <span className="text-gray-400 mr-2 min-w-[120px]">End Date:</span> 
+                                                    <span className="text-white">
+                                                      {item.end_date ? new Date(item.end_date).toLocaleDateString() : '-'}
                                                     </span>
                                                   </p>
                                                   <p className="text-sm mb-1 flex flex-wrap">
