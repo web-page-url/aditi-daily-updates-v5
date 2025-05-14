@@ -3,7 +3,7 @@ import { supabase, Team, TeamMember } from '../lib/supabaseClient';
 import { toast } from 'react-hot-toast';
 import Head from 'next/head';
 import Link from 'next/link';
-import { USER_CACHE_KEY } from '../lib/authContext';
+import { USER_CACHE_KEY, useAuth } from '../lib/authContext';
 
 interface TeamMemberFormData {
   team_id: string;
@@ -19,6 +19,7 @@ interface TeamFormData {
 }
 
 export default function TeamManagement() {
+  const { user, refreshUser } = useAuth();
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,15 +43,25 @@ export default function TeamManagement() {
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // Fetch existing teams and team members
+  // Improved data fetching with retry logic
   useEffect(() => {
-    fetchTeams();
-    fetchTeamMembers();
+    // Only fetch data when component is mounted on client-side
+    if (typeof window !== 'undefined') {
+      fetchTeams();
+      fetchTeamMembers();
+    }
   }, []);
 
-  const fetchTeams = async () => {
+  const fetchTeams = async (retryCount = 0) => {
     try {
       setLoading(true);
+      console.log('Fetching teams...');
+      
+      // Ensure we have a valid session before fetching
+      if (retryCount === 0) {
+        await refreshUser();
+      }
+      
       const { data, error } = await supabase
         .from('aditi_teams')
         .select('*')
@@ -58,22 +69,55 @@ export default function TeamManagement() {
 
       if (error) {
         console.error('Error fetching teams:', error);
+        
+        // Handle session errors with retry
+        if ((error.code === '401' || error.code === '406') && retryCount < 2) {
+          console.log(`Retrying teams fetch (attempt ${retryCount + 1})...`);
+          await refreshUser();
+          return fetchTeams(retryCount + 1);
+        }
+        
         throw error;
       }
       
       setTeams(data || []);
-      console.log('Teams loaded:', data);
-    } catch (error) {
-      if (error instanceof Error) {
-        toast.error('Failed to load teams');
+      console.log('Teams loaded:', data?.length || 0);
+      
+      // Cache teams data for resilience
+      if (typeof window !== 'undefined' && data) {
+        try {
+          localStorage.setItem('aditi_teams_cache', JSON.stringify(data));
+        } catch (e) {
+          console.error('Error caching teams data:', e);
+        }
       }
+    } catch (error) {
+      console.error('Teams fetch error:', error);
+      
+      // Try to load from cache if available
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedTeams = localStorage.getItem('aditi_teams_cache');
+          if (cachedTeams) {
+            console.log('Using cached teams data');
+            setTeams(JSON.parse(cachedTeams));
+          }
+        } catch (e) {
+          console.error('Error loading cached teams:', e);
+        }
+      }
+      
+      toast.error('Failed to load teams. Please try refreshing the page.');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchTeamMembers = async () => {
+  const fetchTeamMembers = async (retryCount = 0) => {
     try {
+      setLoading(true);
+      console.log('Fetching team members...');
+      
       // Set a hard timeout to prevent the loader from getting stuck forever
       const timeout = setTimeout(() => {
         console.log('Team members fetch timeout reached');
@@ -82,6 +126,11 @@ export default function TeamManagement() {
       
       if (loadingTimeout) clearTimeout(loadingTimeout);
       setLoadingTimeout(timeout);
+      
+      // Ensure we have a valid session before fetching
+      if (retryCount === 0) {
+        await refreshUser();
+      }
       
       const { data, error } = await supabase
         .from('aditi_team_members')
@@ -92,62 +141,53 @@ export default function TeamManagement() {
         .order('created_at', { ascending: false });
 
       if (error) {
-        // Check for 406 error (Not Acceptable)
-        if (error.code === '406' || error.message?.includes('406') || (error as any).status === 406) {
-          console.error('Session token issue detected (406 error). Attempting to refresh session...');
-          
-          // Try to refresh the session
-          const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
-          
-          if (refreshError || !sessionData.session) {
-            console.error('Failed to refresh session after 406 error:', refreshError);
-            
-            // Clear any cached authentication data
-            try {
-              localStorage.removeItem(USER_CACHE_KEY);
-              
-              // Force redirect to login page
-              window.location.href = '/';
-              return;
-            } catch (e) {
-              console.error('Error clearing cache:', e);
-            }
-          }
-          
-          // Retry the fetch after successful token refresh
-          console.log('Session refreshed, retrying data fetch...');
-          const { data: retryData, error: retryError } = await supabase
-            .from('aditi_team_members')
-            .select(`
-              *,
-              aditi_teams(*)
-            `)
-            .order('created_at', { ascending: false });
-            
-          if (retryError) {
-            throw retryError;
-          }
-          
-          setTeamMembers(retryData || []);
-          setLastFetched(new Date());
-          setDataLoaded(true);
-          return;
+        console.error('Error fetching team members:', error);
+        
+        // Handle session errors with retry
+        if ((error.code === '401' || error.code === '406') && retryCount < 2) {
+          console.log(`Retrying team members fetch (attempt ${retryCount + 1})...`);
+          await refreshUser();
+          return fetchTeamMembers(retryCount + 1);
         }
         
         throw error;
       }
       
       setTeamMembers(data || []);
+      console.log('Team members loaded:', data?.length || 0);
       setLastFetched(new Date());
       setDataLoaded(true);
-    } catch (error) {
-      if (error instanceof Error) {
-        toast.error('Failed to load team members');
+      
+      // Cache team members data for resilience
+      if (typeof window !== 'undefined' && data) {
+        try {
+          localStorage.setItem('aditi_team_members_cache', JSON.stringify(data));
+        } catch (e) {
+          console.error('Error caching team members data:', e);
+        }
       }
-      // Even in case of error, provide empty data to prevent UI from being stuck
+    } catch (error) {
+      console.error('Team members fetch error:', error);
+      
+      // Try to load from cache if available
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedMembers = localStorage.getItem('aditi_team_members_cache');
+          if (cachedMembers) {
+            console.log('Using cached team members data');
+            setTeamMembers(JSON.parse(cachedMembers));
+            setDataLoaded(true);
+          }
+        } catch (e) {
+          console.error('Error loading cached team members:', e);
+        }
+      }
+      
+      toast.error('Failed to load team members. Please try refreshing the page.');
       setTeamMembers([]);
     } finally {
       if (loadingTimeout) clearTimeout(loadingTimeout);
+      setLoading(false);
     }
   };
 
@@ -161,6 +201,11 @@ export default function TeamManagement() {
       if (!newTeam.team_name.trim()) throw new Error('Team name is required');
       if (!newTeam.manager_email.trim()) throw new Error('Manager email is required');
 
+      // Ensure we have a valid session before submitting
+      await refreshUser();
+      
+      console.log('Creating new team:', newTeam);
+      
       // Insert the new team directly
       const { data, error } = await supabase
         .from('aditi_teams')
@@ -182,9 +227,12 @@ export default function TeamManagement() {
         manager_email: ''
       });
       setShowTeamForm(false);
+      
+      // Refresh teams data
       await fetchTeams();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create team';
+      console.error('Team creation error:', error);
       setTeamError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -217,6 +265,11 @@ export default function TeamManagement() {
       if (validationErrors.length > 0) {
         throw new Error(validationErrors.join('\n'));
       }
+
+      // Ensure we have a valid session before submitting
+      await refreshUser();
+      
+      console.log('Adding new team member:', newTeamMember);
 
       // Check for duplicate entry
       const { data: existingEntry, error: checkError } = await supabase
@@ -259,9 +312,12 @@ export default function TeamManagement() {
         manager_name: '',
         team_member_name: ''
       });
+      
+      // Refresh team members data
       await fetchTeamMembers();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to add team member';
+      console.error('Team member addition error:', error);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
