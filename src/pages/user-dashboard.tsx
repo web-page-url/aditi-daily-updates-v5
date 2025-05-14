@@ -22,12 +22,79 @@ export default function UserDashboard() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [editingUpdate, setEditingUpdate] = useState<DailyUpdate | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [filteredUpdates, setFilteredUpdates] = useState<DailyUpdate[]>([]);
+  const [stats, setStats] = useState({
+    totalUpdates: 0,
+    completedTasks: 0,
+    inProgressTasks: 0,
+    blockedTasks: 0
+  });
 
   useEffect(() => {
     if (user) {
       fetchUserUpdates();
     }
   }, [user, dateRange]);
+
+  // Add effect to apply filters when updates or activeFilter changes
+  useEffect(() => {
+    applyFilters();
+  }, [userUpdates, activeFilter]);
+
+  // Calculate stats from the updates
+  const calculateStats = (updates: DailyUpdate[]) => {
+    const newStats = {
+      totalUpdates: updates.length,
+      completedTasks: updates.filter(update => update.status === 'completed').length,
+      inProgressTasks: updates.filter(update => update.status === 'in-progress').length,
+      blockedTasks: updates.filter(update => update.status === 'blocked').length
+    };
+    setStats(newStats);
+  };
+
+  // Filter the updates based on the active filter
+  const applyFilters = () => {
+    if (!userUpdates.length) {
+      setFilteredUpdates([]);
+      return;
+    }
+
+    let filtered = [...userUpdates];
+
+    // Apply the active filter
+    switch (activeFilter) {
+      case 'completed':
+        filtered = filtered.filter(update => update.status === 'completed');
+        break;
+      case 'in-progress':
+        filtered = filtered.filter(update => update.status === 'in-progress');
+        break;
+      case 'blocked':
+        filtered = filtered.filter(update => update.status === 'blocked');
+        break;
+      case 'all':
+      default:
+        // No additional filtering
+        break;
+    }
+
+    setFilteredUpdates(filtered);
+    calculateStats(userUpdates);
+  };
+
+  // Function to filter data by card type
+  const filterByCardType = (filterType: string) => {
+    setActiveFilter(filterType);
+    
+    // Apply the filters immediately
+    setTimeout(() => {
+      applyFilters();
+    }, 100);
+    
+    // Provide visual feedback
+    toast.success(`Filtered by ${filterType === 'all' ? 'all updates' : filterType} status`);
+  };
 
   const fetchUserUpdates = async () => {
     try {
@@ -97,8 +164,12 @@ export default function UserDashboard() {
             });
             
             setUserUpdates(updatesWithTeams || []);
+            // Calculate stats with the new data
+            calculateStats(updatesWithTeams || []);
           } else {
             setUserUpdates([]);
+            // Reset stats when no data is available
+            calculateStats([]);
           }
           
           setLastFetched(new Date());
@@ -127,8 +198,12 @@ export default function UserDashboard() {
         });
         
         setUserUpdates(updatesWithTeams || []);
+        // Calculate stats with the new data
+        calculateStats(updatesWithTeams || []);
       } else {
         setUserUpdates([]);
+        // Reset stats when no data is available
+        calculateStats([]);
       }
       
       setLastFetched(new Date());
@@ -138,6 +213,7 @@ export default function UserDashboard() {
       toast.error('Failed to load your updates');
       // Even in case of error, provide empty data to prevent UI from being stuck
       setUserUpdates([]);
+      calculateStats([]);
     } finally {
       setIsLoading(false);
       if (loadingTimeout) clearTimeout(loadingTimeout);
@@ -220,6 +296,11 @@ export default function UserDashboard() {
         <Head>
           <title>Your Updates | Aditi Daily Updates</title>
           <meta name="description" content="View your submitted daily updates and status reports" />
+          <style>{`
+            .hover-shadow-custom-purple:hover {
+              box-shadow: 0 0 15px rgba(139, 92, 246, 0.5);
+            }
+          `}</style>
         </Head>
 
         {/* Header */}
@@ -285,6 +366,117 @@ export default function UserDashboard() {
               </div>
             </div>
           </div>
+
+          {/* Add stat cards */}
+          {userUpdates.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div 
+                className="bg-[#262d40] p-4 rounded-lg shadow-lg hover-shadow-custom-purple transition-shadow duration-300 cursor-pointer hover:bg-[#2a3349] relative group"
+                onClick={() => filterByCardType('all')}
+                title="Click to view all updates"
+              >
+                <div className="absolute top-2 right-2 text-gray-500 group-hover:text-gray-300">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+                <h3 className="text-gray-400 text-sm">Total Updates</h3>
+                <p className="text-2xl font-bold text-white">{stats.totalUpdates}</p>
+              </div>
+              
+              <div 
+                className="bg-[#262d40] p-4 rounded-lg shadow-lg hover-shadow-custom-purple transition-shadow duration-300 cursor-pointer hover:bg-[#2a3349] relative group"
+                onClick={() => filterByCardType('completed')}
+                title="Click to view completed tasks"
+              >
+                <div className="absolute top-2 right-2 text-gray-500 group-hover:text-gray-300">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+                <h3 className="text-gray-400 text-sm">Completed Tasks</h3>
+                <p className="text-2xl font-bold text-green-400">{stats.completedTasks}</p>
+              </div>
+              
+              <div 
+                className="bg-[#262d40] p-4 rounded-lg shadow-lg hover-shadow-custom-purple transition-shadow duration-300 cursor-pointer hover:bg-[#2a3349] relative group"
+                onClick={() => filterByCardType('in-progress')}
+                title="Click to view in-progress tasks"
+              >
+                <div className="absolute top-2 right-2 text-gray-500 group-hover:text-gray-300">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+                <h3 className="text-gray-400 text-sm">In Progress</h3>
+                <p className="text-2xl font-bold text-blue-400">{stats.inProgressTasks}</p>
+              </div>
+              
+              <div 
+                className="bg-[#262d40] p-4 rounded-lg shadow-lg hover-shadow-custom-purple transition-shadow duration-300 cursor-pointer hover:bg-[#2a3349] relative group"
+                onClick={() => filterByCardType('blocked')}
+                title="Click to view blocked tasks"
+              >
+                <div className="absolute top-2 right-2 text-gray-500 group-hover:text-gray-300">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+                <h3 className="text-gray-400 text-sm">Stuck (Blockers)</h3>
+                <p className="text-2xl font-bold text-red-400">{stats.blockedTasks}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Filter pills */}
+          {userUpdates.length > 0 && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                onClick={() => filterByCardType('all')}
+                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors duration-200 ${
+                  activeFilter === 'all' 
+                    ? 'bg-purple-600 text-white' 
+                    : 'bg-[#262d40] text-gray-300 hover:bg-[#2a3347]'
+                }`}
+              >
+                All Updates
+              </button>
+              <button
+                onClick={() => filterByCardType('completed')}
+                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors duration-200 ${
+                  activeFilter === 'completed' 
+                    ? 'bg-green-600 text-white' 
+                    : 'bg-[#262d40] text-gray-300 hover:bg-[#2a3347]'
+                }`}
+              >
+                Completed
+              </button>
+              <button
+                onClick={() => filterByCardType('in-progress')}
+                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors duration-200 ${
+                  activeFilter === 'in-progress' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-[#262d40] text-gray-300 hover:bg-[#2a3347]'
+                }`}
+              >
+                In Progress
+              </button>
+              <button
+                onClick={() => filterByCardType('blocked')}
+                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors duration-200 ${
+                  activeFilter === 'blocked' 
+                    ? 'bg-red-600 text-white' 
+                    : 'bg-[#262d40] text-gray-300 hover:bg-[#2a3347]'
+                }`}
+              >
+                Blocked
+              </button>
+            </div>
+          )}
 
           {/* Updates table */}
           <div className="bg-[#1e2538] shadow-lg rounded-lg overflow-hidden">
@@ -354,7 +546,7 @@ export default function UserDashboard() {
                     </tr>
                   </thead>
                   <tbody className="bg-[#1e2538] divide-y divide-gray-700">
-                    {userUpdates.map((update) => (
+                    {(activeFilter === 'all' ? userUpdates : filteredUpdates).map((update) => (
                       <>
                         <tr 
                           key={update.id} 
