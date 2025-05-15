@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import React from 'react';
 import Head from 'next/head';
 import { supabase, DailyUpdate } from '../lib/supabaseClient';
 import { useAuth } from '../lib/authContext';
@@ -12,6 +13,7 @@ export default function UserDashboard() {
   const { user, signOut } = useAuth();
   const router = useRouter();
   const [userUpdates, setUserUpdates] = useState<DailyUpdate[]>([]);
+  const [filteredUpdates, setFilteredUpdates] = useState<DailyUpdate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [dateRange, setDateRange] = useState({
@@ -24,7 +26,6 @@ export default function UserDashboard() {
   const [editingUpdate, setEditingUpdate] = useState<DailyUpdate | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string>('all');
-  const [filteredUpdates, setFilteredUpdates] = useState<DailyUpdate[]>([]);
   const [stats, setStats] = useState({
     totalUpdates: 0,
     completedTasks: 0,
@@ -82,6 +83,9 @@ export default function UserDashboard() {
 
     setFilteredUpdates(filtered);
     calculateStats(userUpdates);
+    
+    // Debug log
+    console.log('Filtered updates:', filtered.length, 'items, filter:', activeFilter);
   };
 
   // Function to filter data by card type
@@ -202,10 +206,16 @@ export default function UserDashboard() {
             setUserUpdates(updatesWithTeams || []);
             // Calculate stats with the new data
             calculateStats(updatesWithTeams || []);
+            
+            // Debug log
+            console.log('User updates fetched:', updatesWithTeams?.length || 0, 'items');
           } else {
             setUserUpdates([]);
             // Reset stats when no data is available
             calculateStats([]);
+            
+            // Debug log
+            console.log('No user updates found');
           }
           
           setLastFetched(new Date());
@@ -236,10 +246,16 @@ export default function UserDashboard() {
         setUserUpdates(updatesWithTeams || []);
         // Calculate stats with the new data
         calculateStats(updatesWithTeams || []);
+        
+        // Debug log
+        console.log('User updates fetched:', updatesWithTeams?.length || 0, 'items');
       } else {
         setUserUpdates([]);
         // Reset stats when no data is available
         calculateStats([]);
+        
+        // Debug log
+        console.log('No user updates found');
       }
       
       setLastFetched(new Date());
@@ -521,7 +537,7 @@ export default function UserDashboard() {
                 Your Submitted Updates
               </h3>
               <p className="mt-1 max-w-2xl text-sm text-gray-300">
-                {userUpdates.length} updates found
+                {filteredUpdates.length} updates found
               </p>
             </div>
 
@@ -529,7 +545,7 @@ export default function UserDashboard() {
               <div className="flex items-center justify-center h-64">
                 <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
               </div>
-            ) : userUpdates.length === 0 ? (
+            ) : filteredUpdates.length === 0 ? (
               <div className="text-center py-16 px-4">
                 <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -582,10 +598,9 @@ export default function UserDashboard() {
                     </tr>
                   </thead>
                   <tbody className="bg-[#1e2538] divide-y divide-gray-700">
-                    {(activeFilter === 'all' ? userUpdates : filteredUpdates).map((update) => (
-                      <>
+                    {filteredUpdates.map((update) => (
+                      <React.Fragment key={update.id}>
                         <tr 
-                          key={update.id} 
                           className={`${expandedRows[update.id] ? 'bg-[#262d40]' : ''} hover:bg-[#2a3349] cursor-pointer transition-colors duration-150`}
                           onClick={() => toggleRowExpansion(update.id)}
                         >     
@@ -748,7 +763,7 @@ export default function UserDashboard() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
