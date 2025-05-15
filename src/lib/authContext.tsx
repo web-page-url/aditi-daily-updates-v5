@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { supabase } from './supabaseClient';
 import { useRouter } from 'next/router';
 import { toast } from 'react-hot-toast';
+import { isReturningFromTabSwitch, saveTabState } from './tabSwitchUtil';
 
 // User cache key for localStorage
 export const USER_CACHE_KEY = 'aditi_user_cache';
@@ -26,26 +27,31 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+// Create context with default values
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  isLoading: true,
+  signOut: async () => {},
+  checkUserRole: async () => 'user',
+  refreshUser: async () => {},
+});
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(false); // Start with false to prevent initial loading flash
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
-  // Initialize user from localStorage if available
+  // Attempt to restore user from cache on initial load
   useEffect(() => {
-    // This prevents Vercel from showing loading spinner too early
-    if (typeof window !== 'undefined') {
+    // Attempt to get cached user first for immediate UI display
+    const cachedUser = localStorage.getItem(USER_CACHE_KEY);
+    if (cachedUser) {
       try {
-        const cachedUser = localStorage.getItem(USER_CACHE_KEY);
-        if (cachedUser) {
-          setUser(JSON.parse(cachedUser));
-        }
-      } catch (error) {
-        console.error('Error loading cached user:', error);
+        setUser(JSON.parse(cachedUser));
+      } catch (err) {
+        console.error('Error parsing cached user:', err);
       }
-    }
+    } 
     
     // Check session in the background without showing loading state
     checkSessionQuietly();
@@ -66,15 +72,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Define handler to maintain session when tab becomes visible again
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        // Save tab state with authentication info
+        saveTabState({ 
+          hasAuth: !!user,
+          authTimestamp: Date.now(),
+          userEmail: user?.email
+        });
+        
         // Check if we have a cached user but not a current user state
         const cachedUser = localStorage.getItem(USER_CACHE_KEY);
         if (cachedUser && !user) {
           console.log('Tab visible - restoring user from cache');
           try {
             setUser(JSON.parse(cachedUser));
+            // No need to trigger a full session check if restored from cache
+            return;
           } catch (err) {
             console.error('Error parsing cached user:', err);
           }
+        }
+        
+        // Only check session if not returning from a tab switch
+        if (!isReturningFromTabSwitch()) {
+          // Use delayed check to prevent unnecessary API calls during quick tab switches
+          const tabSwitchDelay = setTimeout(() => {
+            checkSessionQuietly();
+          }, 500);
+          
+          return () => clearTimeout(tabSwitchDelay);
+        }
+      } else if (document.visibilityState === 'hidden') {
+        // Tab is being hidden, save the current auth state
+        if (user) {
+          saveTabState({ 
+            hasAuth: true,
+            hiddenWithAuth: true,
+            userEmail: user.email
+          });
         }
       }
     };
@@ -90,6 +124,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Set up auth state listener
   useEffect(() => {
+    // Skip listener setup if returning from tab switch
+    if (isReturningFromTabSwitch()) {
+      console.log('Skipping auth listener setup due to tab switch');
+      return;
+    }
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
         try {
@@ -116,10 +156,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Quiet session check without loading spinner
   const checkSessionQuietly = async () => {
     // Skip session check if returning from tab switch
-    if (typeof window !== 'undefined' && 
-        (sessionStorage?.getItem('returning_from_tab_switch') || 
-         sessionStorage?.getItem('prevent_auto_refresh'))) {
+    if (isReturningFromTabSwitch()) {
       console.log('Skipping quiet session check due to tab switch');
+      
+      // If we have a cached user, use that instead of calling API
+      const cachedUser = localStorage.getItem(USER_CACHE_KEY);
+      if (cachedUser && !user) {
+        try {
+          const parsedUser = JSON.parse(cachedUser);
+          // Check if the cached user was saved recently (last 2 hours)
+          const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
+          if (parsedUser.lastChecked && parsedUser.lastChecked > twoHoursAgo) {
+            console.log('Using recent cached user during tab switch');
+            setUser(parsedUser);
+            return;
+          }
+        } catch (err) {
+          console.error('Error parsing cached user:', err);
+        }
+      }
       return;
     }
     
@@ -237,6 +292,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshUser = async () => {
+    // Skip refresh if returning from tab switch
+    if (isReturningFromTabSwitch()) {
+      console.log('Skipping user refresh due to tab switch');
+      
+      // If we have a cached user, use that instead of calling API
+      const cachedUser = localStorage.getItem(USER_CACHE_KEY);
+      if (cachedUser) {
+        try {
+          setUser(JSON.parse(cachedUser));
+          return;
+        } catch (err) {
+          console.error('Error parsing cached user:', err);
+        }
+      }
+      return;
+    }
+    
     try {
       setIsLoading(true);
       
@@ -252,61 +324,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await updateUserData(authUser);
       } else {
         setUser(null);
+        localStorage.removeItem(USER_CACHE_KEY);
       }
     } catch (error) {
       console.error('Error refreshing user:', error);
       setUser(null);
     } finally {
       setIsLoading(false);
-      
-      // Safety timeout to ensure loading state is cleared
-      setTimeout(() => {
-        if (isLoading) {
-          console.log('Safety timeout clearing loading state in refreshUser');
-          setIsLoading(false);
-        }
-      }, 1000);
     }
   };
 
   const checkUserRole = async (): Promise<UserRole> => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      
-      if (!authUser?.email) return 'user';
-      
-      // Check if admin
-      const { data: adminData } = await supabase
-        .from('aditi_admins')
-        .select('*')
-        .eq('email', authUser.email)
-        .single();
-      
-      if (adminData) return 'admin';
-      
-      // Check if manager
-      const { data: managerData } = await supabase
-        .from('aditi_teams')
-        .select('*')
-        .eq('manager_email', authUser.email);
-      
-      if (managerData && managerData.length > 0) return 'manager';
-      
-      return 'user';
-    } catch (error) {
-      console.error('Error checking user role:', error);
+    // First try to get from current user
+    if (user?.role) {
+      return user.role;
+    }
+    
+    // Skip check if returning from tab switch
+    if (isReturningFromTabSwitch()) {
+      console.log('Skipping user role check due to tab switch');
+      // Return a default role
       return 'user';
     }
+    
+    // Try to refresh the user first
+    try {
+      await refreshUser();
+      if (user?.role) {
+        return user.role;
+      }
+    } catch (error) {
+      console.error('Error during refresh for role check:', error);
+    }
+    
+    // Default to user role if we can't determine
+    return 'user';
   };
 
   const signOut = async () => {
     try {
       setIsLoading(true);
-      await supabase.auth.signOut();
-      setUser(null);
+      // Clear local storage first
       localStorage.removeItem(USER_CACHE_KEY);
-      toast.success('Successfully signed out');
-      router.push('/');
+      
+      // Then sign out from supabase
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Clear user manually
+      setUser(null);
+      
+      // Redirect to home
+      if (router.pathname !== '/') {
+        router.push('/');
+      }
     } catch (error) {
       console.error('Error signing out:', error);
       toast.error('Failed to sign out');
@@ -316,16 +390,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, signOut, checkUserRole, refreshUser }}>
+    <AuthContext.Provider 
+      value={{
+        user,
+        isLoading,
+        signOut,
+        checkUserRole,
+        refreshUser
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  return useContext(AuthContext);
 } 

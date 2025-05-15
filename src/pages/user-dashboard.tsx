@@ -6,6 +6,7 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import { useRouter } from 'next/router';
 import { toast } from 'react-hot-toast';
 import EditUpdateModal from '../components/EditUpdateModal';
+import { isReturningFromTabSwitch, preventNextTabSwitchRefresh } from '../lib/tabSwitchUtil';
 
 export default function UserDashboard() {
   const { user, signOut } = useAuth();
@@ -96,7 +97,42 @@ export default function UserDashboard() {
     toast.success(`Filtered by ${filterType === 'all' ? 'all updates' : filterType} status`);
   };
 
+  // Add a function for manual refresh
+  const refreshData = async () => {
+    if (isReturningFromTabSwitch()) {
+      console.log('Skipping refresh due to tab switch');
+      toast('Tab switch detected, refresh deferred', {
+        icon: 'ℹ️',
+        style: {
+          borderRadius: '10px',
+          background: '#333',
+          color: '#fff',
+        },
+      });
+      return;
+    }
+    
+    setIsLoading(true);
+    preventNextTabSwitchRefresh();
+    
+    try {
+      await fetchUserUpdates();
+      toast.success('Data refreshed successfully');
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      toast.error('Failed to refresh data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Modify your existing fetchUserUpdates function to check for tab switches
   const fetchUserUpdates = async () => {
+    if (isReturningFromTabSwitch()) {
+      console.log('Skipping data fetch due to tab switch');
+      return;
+    }
+    
     try {
       setIsLoading(true);
       

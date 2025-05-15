@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useAuth } from '../lib/authContext';
 import ProtectedRoute from '../components/ProtectedRoute';
 import EditUpdateModal from '../components/EditUpdateModal';
+import { isReturningFromTabSwitch, preventNextTabSwitchRefresh } from '../lib/tabSwitchUtil';
 
 interface DashboardUser {
   userName: string;
@@ -1042,12 +1043,12 @@ export default function Dashboard() {
       return;
     }
     
-    // Check if we're returning from a tab switch
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('returning_from_tab_switch')) {
+    // Check if we're returning from a tab switch using the utility
+    if (isReturningFromTabSwitch()) {
       console.log('Skipping manual data refresh due to returning from tab switch');
       
       // Show a message to the user
-      toast('Just switched tabs, refresh prevented', {
+      toast('Tab switch detected, refresh deferred', {
         icon: 'ℹ️',
         style: {
           borderRadius: '10px',
@@ -1061,14 +1062,7 @@ export default function Dashboard() {
     setIsRefreshing(true);
     
     // Set a temporary prevention flag
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem('prevent_auto_refresh', 'true');
-      
-      // Remove it after a few seconds
-      setTimeout(() => {
-        sessionStorage.removeItem('prevent_auto_refresh');
-      }, 5000);
-    }
+    preventNextTabSwitchRefresh();
     
     try {
       await fetchData(selectedTeam);
@@ -1100,17 +1094,17 @@ export default function Dashboard() {
         // Check if the tab is active before refreshing
         if (document.visibilityState === 'visible') {
           // Check if we've recently returned from a tab switch
-          const returningFromTabSwitch = typeof sessionStorage !== 'undefined' && 
-            sessionStorage.getItem('returning_from_tab_switch');
+          if (isReturningFromTabSwitch()) {
+            console.log('Skipping refresh due to recent tab switch');
+            return;
+          }
           
-          // Only refresh if enough time has passed and we're not returning from a tab switch
+          // Only refresh if enough time has passed
           const timeSinceLastRefresh = Date.now() - lastRefreshTime;
-          if (!returningFromTabSwitch && timeSinceLastRefresh >= refreshInterval) {
+          if (timeSinceLastRefresh >= refreshInterval) {
             console.log('Running periodic silent data refresh');
             fetchDataSilently(selectedTeam);
             lastRefreshTime = Date.now();
-          } else if (returningFromTabSwitch) {
-            console.log('Skipping refresh due to recent tab switch');
           }
         }
       }, 30000); // Check every 30 seconds instead of waiting full 5 minutes

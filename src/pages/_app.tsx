@@ -5,58 +5,20 @@ import Head from 'next/head';
 import { AuthProvider } from "@/lib/authContext";
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { applySwitchPreventionToFetch } from '@/lib/tabSwitchUtil';
+import { applySwitchPreventionToFetch, saveTabState, restoreTabState, isReturningFromTabSwitch } from '@/lib/tabSwitchUtil';
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
   const [isAdminRoute, setIsAdminRoute] = useState(false);
+  const [restoredFromTab, setRestoredFromTab] = useState(false);
 
   // Add mechanism to prevent refreshes on tab switching
   useEffect(() => {
     // Apply the fetch prevention mechanism
     applySwitchPreventionToFetch();
     
-    // This will override any page-specific visibility change handlers
-    const handleVisibilityChange = (e: Event) => {
-      // More aggressively prevent page reloads when switching tabs
-      if (document.visibilityState === 'visible') {
-        // Set multiple flags to prevent different refresh mechanisms
-        sessionStorage.setItem('returning_from_tab_switch', 'true');
-        sessionStorage.setItem('prevent_auto_refresh', Date.now().toString());
-        document.body.classList.add('tab-just-activated');
-        
-        // Stop any pending navigations or revalidations
-        if (window.stop) {
-          try {
-            window.stop();
-          } catch (err) {
-            console.log('Could not stop pending navigations');
-          }
-        }
-        
-        // Preserve cached user across tab switches by ensuring it's not cleared
-        const cachedUser = localStorage.getItem('aditi_user_cache');
-        if (cachedUser) {
-          // Re-save it to refresh the storage timestamp
-          console.log('Re-caching user data during tab switch');
-          localStorage.setItem('aditi_user_cache', cachedUser);
-        }
-        
-        // Remove the flags after a short delay
-        setTimeout(() => {
-          sessionStorage.removeItem('returning_from_tab_switch');
-          document.body.classList.remove('tab-just-activated');
-        }, 2500); // Extended timeout to ensure all components respect the flag
-        
-        // Remove the prevent_auto_refresh after a longer period
-        setTimeout(() => {
-          sessionStorage.removeItem('prevent_auto_refresh');
-        }, 5000); // Extended from 3000 to 5000ms to give more time
-      }
-    };
-    
-    // Add the event listener with capture=true to ensure it runs first
-    document.addEventListener('visibilitychange', handleVisibilityChange, true);
+    // Save current tab state immediately on load
+    saveTabState({ initialLoad: true });
     
     // Add special styling to temporarily prevent flash of content when switching tabs
     const style = document.createElement('style');
@@ -80,49 +42,37 @@ export default function App({ Component, pageProps }: AppProps) {
     `;
     document.head.appendChild(style);
     
-    // Also override any window.onblur/onfocus handlers that might cause refreshes
-    const originalBlur = window.onblur;
-    const originalFocus = window.onfocus;
-    
-    window.onblur = function(e: FocusEvent) {
-      // Set a flag that we're switching away from the tab
-      sessionStorage.setItem('tab_switching_away', 'true');
-      if (originalBlur) return originalBlur.call(window, e);
-    };
-    
-    window.onfocus = function(e: FocusEvent) {
-      if (sessionStorage.getItem('tab_switching_away')) {
-        // We're returning from a tab switch
-        sessionStorage.removeItem('tab_switching_away');
-        sessionStorage.setItem('returning_from_tab_switch', 'true');
-        
-        // Extended to prevent immediate clearing
-        setTimeout(() => {
-          sessionStorage.removeItem('returning_from_tab_switch');
-        }, 2500);
-        
-        // Prevent default focus behavior
-        if (e && typeof e.stopPropagation === 'function') {
-          e.stopPropagation();
+    // Handle Next.js router events to prevent unnecessary refreshes
+    const handleRouteChangeStart = (url: string) => {
+      if (isReturningFromTabSwitch()) {
+        console.log('Preventing route change during tab switch:', url);
+        // Only prevent navigation if it's to the same page we're already on
+        if (url === router.asPath) {
+          router.events.emit('routeChangeError');
+          throw new Error('Route change cancelled due to tab switch');
         }
-
-        // Then call original handler
-        if (originalFocus) originalFocus.call(window, e);
-        return false;
       }
-      if (originalFocus) return originalFocus.call(window, e);
+      
+      // Save state before any navigation
+      saveTabState({ navigatingTo: url });
     };
+    
+    const handleRouteChangeComplete = (url: string) => {
+      // Update tab state after successful navigation
+      saveTabState({ currentRoute: url });
+    };
+    
+    // Listen to router events
+    router.events.on('routeChangeStart', handleRouteChangeStart);
+    router.events.on('routeChangeComplete', handleRouteChangeComplete);
     
     // Cleanup function
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange, true);
       document.head.removeChild(style);
-      
-      // Restore original handlers
-      window.onblur = originalBlur;
-      window.onfocus = originalFocus;
+      router.events.off('routeChangeStart', handleRouteChangeStart);
+      router.events.off('routeChangeComplete', handleRouteChangeComplete);
     };
-  }, []);
+  }, [router]);
 
   // Route-specific handling
   useEffect(() => {
@@ -141,6 +91,25 @@ export default function App({ Component, pageProps }: AppProps) {
       router.events.off('routeChangeComplete', adminRouteCheck);
     };
   }, [router.pathname, router.events]);
+
+  // Restore tab state on initial load
+  useEffect(() => {
+    // Check if we're restoring from a tab switch
+    if (!restoredFromTab) {
+      const tabState = restoreTabState();
+      
+      if (tabState && tabState.route && tabState.route !== router.pathname) {
+        console.log('Restoring page from tab state:', tabState.route);
+        // Only restore if the routes don't match (means we loaded a different page)
+        setRestoredFromTab(true);
+        
+        // Don't attempt to restore if we're on a protected route or login page
+        if (router.pathname === '/' || !tabState.route.includes('/user-dashboard')) {
+          router.replace(tabState.route, undefined, { shallow: true });
+        }
+      }
+    }
+  }, [router, restoredFromTab]);
 
   // Global loading state timeout handler
   useEffect(() => {
@@ -175,6 +144,8 @@ export default function App({ Component, pageProps }: AppProps) {
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="theme-color" content="#1a1f2e" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
       </Head>
       <Component {...pageProps} />
       <Toaster position="top-right" toastOptions={{
