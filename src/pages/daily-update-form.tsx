@@ -530,6 +530,7 @@ export default function DailyUpdateFormPage() {
                       id="story_points"
                       name="story_points"
                       min="0"
+                      max="8"
                       step="0.5"
                       value={formData.story_points}
                       onChange={handleChange}
