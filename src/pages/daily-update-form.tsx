@@ -89,6 +89,8 @@ export default function DailyUpdateFormPage() {
 
       if (membershipError) {
         console.error('Error fetching team memberships:', membershipError);
+        setTeams([]); // Initialize as empty array on error
+        return;
       }
 
       // If user has team memberships, get those teams
@@ -101,7 +103,8 @@ export default function DailyUpdateFormPage() {
 
         if (teamsError) {
           console.error('Error fetching specific teams:', teamsError);
-          throw teamsError;
+          setTeams([]); // Initialize as empty array on error
+          return;
         }
         setTeams(teamsData || []);
       } else {
@@ -113,7 +116,8 @@ export default function DailyUpdateFormPage() {
 
         if (allTeamsError) {
           console.error('Error fetching all teams:', allTeamsError);
-          throw allTeamsError;
+          setTeams([]); // Initialize as empty array on error
+          return;
         }
         
         setTeams(allTeams || []);
@@ -121,6 +125,7 @@ export default function DailyUpdateFormPage() {
     } catch (error) {
       console.error('Error fetching teams:', error);
       toast.error('Failed to load teams');
+      setTeams([]); // Initialize as empty array on error
     } finally {
       setLoadingTeams(false);
     }
@@ -443,7 +448,7 @@ export default function DailyUpdateFormPage() {
                       disabled={loadingTeams}
                     >
                       <option value="" disabled>Select your team</option>
-                      {teams.map(team => (
+                      {Array.isArray(teams) && teams.map(team => (
                         <option key={team.id} value={team.id}>
                           {team.team_name}
                         </option>
@@ -487,6 +492,7 @@ export default function DailyUpdateFormPage() {
                       type="date"
                       id="start_date"
                       name="start_date"
+                      min={new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
                       value={formData.start_date}
                       onChange={handleChange}
                       className={`shadow-sm block w-full sm:text-sm rounded-md border bg-[#262d40] text-white ${
