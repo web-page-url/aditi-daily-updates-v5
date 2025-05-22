@@ -5,12 +5,10 @@ import Head from 'next/head';
 import { AuthProvider } from "@/lib/authContext";
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { saveTabState, restoreTabState } from '@/lib/tabSwitchUtil';
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
   const [isAdminRoute, setIsAdminRoute] = useState(false);
-  const [restoredFromTab, setRestoredFromTab] = useState(false);
 
   // Route-specific handling
   useEffect(() => {
@@ -30,25 +28,6 @@ export default function App({ Component, pageProps }: AppProps) {
     };
   }, [router.pathname, router.events]);
 
-  // Restore tab state on initial load
-  useEffect(() => {
-    // Check if we're restoring from a tab switch
-    if (!restoredFromTab) {
-      const tabState = restoreTabState();
-      
-      if (tabState && tabState.route && tabState.route !== router.pathname) {
-        console.log('Restoring page from tab state:', tabState.route);
-        // Only restore if the routes don't match (means we loaded a different page)
-        setRestoredFromTab(true);
-        
-        // Don't attempt to restore if we're on a protected route or login page
-        if (router.pathname === '/' || !tabState.route.includes('/user-dashboard')) {
-          router.replace(tabState.route, undefined, { shallow: true });
-        }
-      }
-    }
-  }, [router, restoredFromTab]);
-
   // Global loading state timeout handler
   useEffect(() => {
     // This adds a safety mechanism for all pages to prevent hanging loading states
@@ -64,16 +43,23 @@ export default function App({ Component, pageProps }: AppProps) {
       console.log(`Global loading safety timeout reached (${isAdminRoute ? 'admin route' : 'standard route'})`);
     }, timeoutDuration);
     
-    // Listen for route change end
+    // Listen for route change end and errors
     const handleRouteChangeComplete = () => {
       html.classList.remove('js-loading');
     };
+
+    const handleRouteChangeError = () => {
+      html.classList.remove('js-loading');
+      console.log('Route change error - clearing loading state');
+    };
     
     router.events.on('routeChangeComplete', handleRouteChangeComplete);
+    router.events.on('routeChangeError', handleRouteChangeError);
     
     return () => {
       clearTimeout(globalTimeout);
       router.events.off('routeChangeComplete', handleRouteChangeComplete);
+      router.events.off('routeChangeError', handleRouteChangeError);
     };
   }, [router, isAdminRoute]);
 
