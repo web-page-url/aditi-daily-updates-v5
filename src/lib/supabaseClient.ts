@@ -24,11 +24,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     // and the options provided during sign-in
     storage: {
       getItem: (key) => {
-        const storedSession = localStorage.getItem(key);
-        if (typeof window !== 'undefined' && storedSession && window.sessionStorage.getItem('returning_from_tab_switch')) {
-          console.log('Using cached session during tab switch');
-        }
-        return storedSession;
+        return localStorage.getItem(key);
       },
       setItem: (key, value) => {
         localStorage.setItem(key, value);
