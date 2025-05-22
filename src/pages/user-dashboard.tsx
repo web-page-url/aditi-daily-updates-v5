@@ -36,96 +36,26 @@ export default function UserDashboard() {
   const fetchUserUpdates = async () => {
     try {
       setIsLoading(true);
-      // Defensive normalization for dateRange
-      const normalizeDate = (d: string) => {
-        if (!d) return '';
-        if (/^\d{2}-\d{2}-\d{4}$/.test(d)) {
-          const [day, month, year] = d.split('-');
-          return `${year}-${month}-${day}`;
-        }
-        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-          return d;
-        }
-        // Try to parse any other format
-        const parsed = new Date(d);
-        if (!isNaN(parsed.getTime())) {
-          return parsed.toISOString().split('T')[0];
-        }
-        return d;
-      };
-      const start = normalizeDate(dateRange.start);
-      const end = normalizeDate(dateRange.end);
-      // Set a hard timeout to prevent the loader from getting stuck forever
+      
+      // Set a hard timeout to prevent the loader from getting stuck
       const timeout = setTimeout(() => {
         setIsLoading(false);
-        console.log('User updates fetch timeout reached, forcing loading state to false');
-      }, 15000); // 15 seconds max loading time
+        console.log('User updates fetch timeout reached');
+      }, 15000);
+      
       if (loadingTimeout) clearTimeout(loadingTimeout);
       setLoadingTimeout(timeout);
+
       const { data, error } = await supabase
         .from('aditi_daily_updates')
         .select('*')
         .eq('employee_email', user?.email)
-        .gte('created_at', `${start}T00:00:00.000Z`)
-        .lte('created_at', `${end}T23:59:59.999Z`)
+        .gte('created_at', `${dateRange.start}T00:00:00.000Z`)
+        .lte('created_at', `${dateRange.end}T23:59:59.999Z`)
         .order('created_at', { ascending: false });
-      if (error) {
-        // Check for 406 error (Not Acceptable)
-        if (error.code === '406' || error.message?.includes('406') || (error as any).status === 406) {
-          console.error('Session token issue detected (406 error). Attempting to refresh session...');
-          // Try to refresh the session
-          const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
-          if (refreshError || !sessionData.session) {
-            console.error('Failed to refresh session after 406 error:', refreshError);
-            // Force user to sign out and go to login page
-            await signOut();
-            return;
-          }
-          // Retry the fetch after successful token refresh
-          console.log('Session refreshed, retrying data fetch...');
-          const { data: retryData, error: retryError } = await supabase
-            .from('aditi_daily_updates')
-            .select('*')
-            .eq('employee_email', user?.email)
-            .gte('created_at', `${start}T00:00:00.000Z`)
-            .lte('created_at', `${end}T23:59:59.999Z`)
-            .order('created_at', { ascending: false });
-          if (retryError) {
-            throw retryError;
-          }
-          // Now fetch team data separately
-          if (retryData && retryData.length > 0) {
-            const teamIds = [...new Set(retryData.map(update => update.team_id))];
-            const { data: teamsData } = await supabase
-              .from('aditi_teams')
-              .select('*')
-              .in('id', teamIds);
-            // Merge team data with updates
-            const updatesWithTeams = retryData.map(update => {
-              const team = teamsData?.find(t => t.id === update.team_id);
-              return {
-                ...update,
-                aditi_teams: team || null
-              };
-            });
-            setUserUpdates(updatesWithTeams || []);
-            // Calculate stats with the new data
-            calculateStats(updatesWithTeams || []);
-            // Debug log
-            console.log('User updates fetched:', updatesWithTeams?.length || 0, 'items');
-          } else {
-            setUserUpdates([]);
-            // Reset stats when no data is available
-            calculateStats([]);
-            // Debug log
-            console.log('No user updates found');
-          }
-          setLastFetched(new Date());
-          setDataLoaded(true);
-          return;
-        }
-        throw error;
-      }
+
+      if (error) throw error;
+
       // Fetch team data separately
       if (data && data.length > 0) {
         const teamIds = [...new Set(data.map(update => update.team_id))];
@@ -133,6 +63,7 @@ export default function UserDashboard() {
           .from('aditi_teams')
           .select('*')
           .in('id', teamIds);
+
         // Merge team data with updates
         const updatesWithTeams = data.map(update => {
           const team = teamsData?.find(t => t.id === update.team_id);
@@ -141,25 +72,25 @@ export default function UserDashboard() {
             aditi_teams: team || null
           };
         });
-        setUserUpdates(updatesWithTeams || []);
-        // Calculate stats with the new data
-        calculateStats(updatesWithTeams || []);
-        // Debug log
-        console.log('User updates fetched:', updatesWithTeams?.length || 0, 'items');
+
+        setUserUpdates(updatesWithTeams);
+        // Apply filters immediately after setting data
+        setTimeout(() => {
+          applyFilters(updatesWithTeams);
+        }, 0);
       } else {
         setUserUpdates([]);
-        // Reset stats when no data is available
+        setFilteredUpdates([]);
         calculateStats([]);
-        // Debug log
-        console.log('No user updates found');
       }
+
       setLastFetched(new Date());
       setDataLoaded(true);
     } catch (error) {
       console.error('Error fetching user updates:', error);
       toast.error('Failed to load your updates');
-      // Even in case of error, provide empty data to prevent UI from being stuck
       setUserUpdates([]);
+      setFilteredUpdates([]);
       calculateStats([]);
     } finally {
       setIsLoading(false);
@@ -178,11 +109,6 @@ export default function UserDashboard() {
     }
   }, [user, dateRange]);
 
-  // Add effect to apply filters when updates or activeFilter changes
-  useEffect(() => {
-    applyFilters();
-  }, [userUpdates, activeFilter]);
-
   // Calculate stats from the updates
   const calculateStats = (updates: DailyUpdate[]) => {
     const newStats = {
@@ -195,13 +121,15 @@ export default function UserDashboard() {
   };
 
   // Filter the updates based on the active filter
-  const applyFilters = () => {
-    if (!userUpdates.length) {
+  const applyFilters = (data?: DailyUpdate[]) => {
+    const updates = data || userUpdates;
+    if (!updates.length) {
       setFilteredUpdates([]);
+      calculateStats([]);
       return;
     }
 
-    let filtered = [...userUpdates];
+    let filtered = [...updates];
 
     // Apply the active filter
     switch (activeFilter) {
@@ -216,25 +144,24 @@ export default function UserDashboard() {
         break;
       case 'all':
       default:
-        // No additional filtering
+        // No additional filtering needed
         break;
     }
 
     setFilteredUpdates(filtered);
-    calculateStats(userUpdates);
+    calculateStats(updates); // Calculate stats from all updates, not filtered
     
-    // Debug log
-    console.log('Filtered updates:', filtered.length, 'items, filter:', activeFilter);
+    console.log('Filters applied:', {
+      activeFilter,
+      totalUpdates: updates.length,
+      filteredCount: filtered.length
+    });
   };
 
   // Function to filter data by card type
   const filterByCardType = (filterType: string) => {
     setActiveFilter(filterType);
-    
-    // Apply the filters immediately
-    setTimeout(() => {
-      applyFilters();
-    }, 100);
+    applyFilters(); // Apply filters immediately
     
     // Provide visual feedback
     toast.success(`Filtered by ${filterType === 'all' ? 'all updates' : filterType} status`);
@@ -316,9 +243,11 @@ export default function UserDashboard() {
     setShowEditModal(true);
   };
 
-  // Add function to handle successful edit
-  const handleEditSuccess = () => {
-    fetchUserUpdates();
+  // Modify handleEditSuccess to ensure filters are maintained
+  const handleEditSuccess = async () => {
+    const currentFilter = activeFilter;
+    await fetchUserUpdates();
+    setActiveFilter(currentFilter);
   };
 
   // Function to determine if a task is editable by the current user
@@ -332,18 +261,29 @@ export default function UserDashboard() {
     return status === 'to-do' || status === 'in-progress';
   };
 
+  // Modify visibility change handler to ensure filters are preserved
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchUserUpdatesRef.current();
-        toast.success('Dashboard refreshed after tab switch');
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && user) {
+        const currentFilter = activeFilter;
+        await fetchUserUpdates();
+        // Ensure the active filter is maintained
+        setActiveFilter(currentFilter);
       }
     };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [user, activeFilter]);
+
+  // Ensure filters are applied whenever activeFilter changes
+  useEffect(() => {
+    if (dataLoaded) {
+      applyFilters();
+    }
+  }, [activeFilter, dataLoaded]);
 
   return (
     <ProtectedRoute allowedRoles={['user', 'manager', 'admin']}>

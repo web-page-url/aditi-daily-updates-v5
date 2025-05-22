@@ -555,45 +555,35 @@ export default function Dashboard() {
     applyFilters();
   }, [activeTab, selectedTeam, dateRange, historicalData]);
 
-  // Add better debugging to fetchData
+  // Modify fetchData to handle filters better
   const fetchData = async (teamFilter: string = '') => {
     try {
       console.log('fetchData called with teamFilter:', teamFilter);
       setIsLoading(true);
       
-      // Set a hard timeout to prevent the loader from getting stuck forever
+      // Set a hard timeout to prevent the loader from getting stuck
       const timeout = setTimeout(() => {
         setIsLoading(false);
-        console.log('Fetch data timeout reached, forcing loading state to false');
-        
-        // Try to recover data from localStorage if the fetch times out
-        if (!dataLoaded) {
-          tryRecoverFromLocalStorage();
-        }
-      }, 8000); // 8 seconds max loading time
+        console.log('Fetch data timeout reached');
+      }, 8000);
       
       if (loadingTimeout) clearTimeout(loadingTimeout);
       setLoadingTimeout(timeout);
-      
+
       let query = supabase
         .from('aditi_daily_updates')
         .select('*');
 
-      // Admin with no team filter sees all data
+      // Apply role-based filters
       if (user?.role === 'admin' && !teamFilter) {
         // No additional filters needed - admin sees all
-      } 
-      // Admin with team filter or manager sees specific team data
-      else if (teamFilter) {
+      } else if (teamFilter) {
         query = query.eq('team_id', teamFilter);
-      }
-      // Manager with no specific team selected sees all their teams' data
-      else if (user?.role === 'manager') {
+      } else if (user?.role === 'manager') {
         const managerTeamIds = teams.map(team => team.id);
         if (managerTeamIds.length > 0) {
           query = query.in('team_id', managerTeamIds);
         } else {
-          // If no teams found for manager, show empty result
           setHistoricalData([]);
           setFilteredData([]);
           calculateStats([]);
@@ -603,34 +593,27 @@ export default function Dashboard() {
         }
       }
 
-      // Limit to 500 records to prevent performance issues
-      query = query.order('created_at', { ascending: false }).limit(500);
-      
-      // Add a short timeout to prevent rapid API calls
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      const { data, error } = await query;
-
-      if (error) {
-        // Handle error cases
-        throw error;
+      // Apply date range filter
+      if (dateRange.start) {
+        query = query.gte('created_at', `${dateRange.start}T00:00:00`);
       }
-      
-      console.log('Data fetched successfully, total records:', data?.length || 0);
-      
-      // Fetch team data separately and add it to updates
+      if (dateRange.end) {
+        query = query.lte('created_at', `${dateRange.end}T23:59:59`);
+      }
+
+      query = query.order('created_at', { ascending: false });
+
+      const { data, error } = await query;
+      if (error) throw error;
+
       let updatesWithTeams = data || [];
       if (data && data.length > 0) {
-        // Get unique team IDs from updates
         const teamIds = [...new Set(data.map(update => update.team_id))];
-        
-        // Fetch all relevant teams
         const { data: teamsData } = await supabase
           .from('aditi_teams')
           .select('*')
           .in('id', teamIds);
         
-        // Add team data to each update
         updatesWithTeams = data.map(update => {
           const team = teamsData?.find(t => t.id === update.team_id);
           return {
@@ -639,225 +622,42 @@ export default function Dashboard() {
           };
         });
       }
-      
+
       // Update state with fetched data
       setHistoricalData(updatesWithTeams);
-      setFilteredData(updatesWithTeams);
-      calculateStats(updatesWithTeams);
       
+      // Apply filters immediately after setting data
+      setTimeout(() => {
+        applyFilters(updatesWithTeams);
+      }, 0);
+
       const now = new Date();
       setLastRefreshed(now);
       setDataLoaded(true);
-      
-      // Update localStorage with latest data
-      if (user?.email) {
-        try {
-          // Store data in chunks for better persistence
-          storeHistoricalDataInChunks(user.email, updatesWithTeams);
-          localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
-        } catch (error) {
-          console.error('Error saving fetched data to localStorage:', error);
-        }
-      }
+
     } catch (error) {
       console.error('Error fetching data:', error);
-      
-      // Check for 406 error (Not Acceptable)
-      if (error && (
-        (error as any).code === '406' || 
-        (error as any).message?.includes('406') || 
-        (error as any).status === 406
-      )) {
-        console.error('Session token issue detected (406 error). Attempting to refresh session...');
-        
-        try {
-          // Try to refresh the user session first
-          await refreshUser();
-          
-          // Try to refresh the supabase session
-          const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
-          
-          if (refreshError || !sessionData.session) {
-            console.error('Failed to refresh session after 406 error:', refreshError);
-            
-            // Before signing out, try to recover from localStorage
-            const recovered = tryRecoverFromLocalStorage();
-            
-            if (!recovered) {
-              // Clear any cached authentication data and sign out
-              try {
-                await signOut();
-                return;
-              } catch (e) {
-                console.error('Error during sign out after 406 error:', e);
-                // Force redirect to login page if sign out fails
-                window.location.href = '/';
-                return;
-              }
-            }
-          }
-          
-          // Retry the fetch after successful token refresh
-          console.log('Session refreshed, retrying data fetch...');
-          
-          // Rebuild the query
-          let retryQuery = supabase
-            .from('aditi_daily_updates')
-            .select('*');
-            
-          if (user?.role === 'admin' && !teamFilter) {
-            // No additional filters needed - admin sees all
-          } 
-          else if (teamFilter) {
-            retryQuery = retryQuery.eq('team_id', teamFilter);
-          }
-          else if (user?.role === 'manager') {
-            const managerTeamIds = teams.map(team => team.id);
-            if (managerTeamIds.length > 0) {
-              retryQuery = retryQuery.in('team_id', managerTeamIds);
-            }
-          }
-          
-          // Limit to 500 records to prevent performance issues
-          retryQuery = retryQuery.order('created_at', { ascending: false }).limit(500);
-          
-          const { data: retryData, error: retryError } = await retryQuery;
-            
-          if (retryError) {
-            throw retryError;
-          }
-          
-          // Fetch team data separately and add it to updates
-          let updatesWithTeams = retryData || [];
-          if (retryData && retryData.length > 0) {
-            // Get unique team IDs from updates
-            const teamIds = [...new Set(retryData.map(update => update.team_id))];
-            
-            // Fetch all relevant teams
-            const { data: teamsData } = await supabase
-              .from('aditi_teams')
-              .select('*')
-              .in('id', teamIds);
-            
-            // Add team data to each update
-            updatesWithTeams = retryData.map(update => {
-              const team = teamsData?.find(t => t.id === update.team_id);
-              return {
-                ...update,
-                aditi_teams: team || null
-              };
-            });
-          }
-          
-          // Update state with retry data
-          setHistoricalData(updatesWithTeams);
-          setFilteredData(updatesWithTeams);
-          calculateStats(updatesWithTeams);
-          
-          const now = new Date();
-          setLastRefreshed(now);
-          setDataLoaded(true);
-          
-          // Update localStorage with latest data
-          if (user?.email) {
-            try {
-              storeHistoricalDataInChunks(user.email, updatesWithTeams);
-              localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
-            } catch (error) {
-              console.error('Error saving retry data to localStorage:', error);
-            }
-          }
-        } catch (retryError) {
-          console.error('Error during retry:', retryError);
-          toast.error('Failed to load updates');
-          
-          // Before showing error state, try to recover from localStorage
-          const recovered = tryRecoverFromLocalStorage();
-          
-          if (!recovered) {
-            setHistoricalData([]);
-            setFilteredData([]);
-            calculateStats([]);
-            setLoadingFailed(true);
-          }
-        }
-      } else {
-        toast.error('Failed to load updates');
-        
-        // Before showing error state, try to recover from localStorage
-        const recovered = tryRecoverFromLocalStorage();
-          
-        if (!recovered) {
-          setHistoricalData([]);
-          setFilteredData([]);
-          calculateStats([]);
-          setLoadingFailed(true);
-        }
-      }
+      toast.error('Failed to load updates');
+      setHistoricalData([]);
+      setFilteredData([]);
+      calculateStats([]);
+      setLoadingFailed(true);
     } finally {
       setIsLoading(false);
       if (loadingTimeout) clearTimeout(loadingTimeout);
     }
   };
 
-  // Function to store historical data in chunks
-  const storeHistoricalDataInChunks = (userEmail: string, data: DailyUpdate[]) => {
-    try {
-      // Implementation of data chunking for large datasets
-      const chunkSize = 50; // Number of records per chunk
-      const chunks = [];
-      
-      // Split historical data into chunks
-      for (let i = 0; i < data.length; i += chunkSize) {
-        const chunk = data.slice(i, i + chunkSize);
-        chunks.push(chunk);
-      }
-      
-      // Clear any existing chunks first
-      for (let i = 0; i < 100; i++) { // Assume max 100 chunks
-        localStorage.removeItem(`dashboard_historicalData_chunk_${i}_${userEmail}`);
-      }
-      
-      // Store new chunks
-      chunks.forEach((chunk, index) => {
-        localStorage.setItem(`dashboard_historicalData_chunk_${index}_${userEmail}`, JSON.stringify(chunk));
-      });
-      
-      // Store chunk metadata
-      localStorage.setItem(`dashboard_historicalData_chunkCount_${userEmail}`, chunks.length.toString());
-      
-      // Try to store filtered data, but catch if it's too large
-      try {
-        localStorage.setItem(`dashboard_filteredData_${userEmail}`, JSON.stringify(filteredData));
-      } catch (err) {
-        console.log('Filtered data too large for localStorage, will recompute on load');
-      }
-    } catch (error) {
-      console.error('Error storing data in chunks:', error);
-    }
-  };
-
-  const calculateStats = (data: DailyUpdate[]) => {
-    const stats = {
-      totalUpdates: data.length,
-      totalBlockers: data.filter(update => update.blocker_type).length,
-      completedTasks: data.filter(update => update.status === 'completed').length,
-      inProgressTasks: data.filter(update => update.status === 'in-progress').length,
-      stuckTasks: data.filter(update => update.status === 'blocked').length
-    };
-    setStats(stats);
-  };
-
-  const applyFilters = () => {
-    console.log('Applying filters to historical data:', historicalData.length);
-    console.log('Current filters - dateRange:', dateRange, 'selectedTeam:', selectedTeam, 'activeTab:', activeTab);
-    
-    if (!historicalData.length) {
-      console.log('No historical data to filter');
+  // Modify applyFilters to accept optional data parameter
+  const applyFilters = (data?: DailyUpdate[]) => {
+    const updates = data || historicalData;
+    if (!updates || updates.length === 0) {
+      setFilteredData([]);
+      calculateStats([]);
       return;
     }
-    
-    let filtered = [...historicalData];
+
+    let filtered = [...updates];
 
     // Apply date range filter
     filtered = filtered.filter(update => {
@@ -871,65 +671,112 @@ export default function Dashboard() {
     }
 
     // Apply tab filter
-    switch (activeTab) {
+    if (activeTab !== 'all') {
+      const filteredByType = filterByCardType(activeTab);
+      if (filteredByType) {
+        filtered = filteredByType;
+      }
+    }
+
+    setFilteredData(filtered);
+    calculateStats(filtered);
+
+    console.log('Filters applied:', {
+      activeTab,
+      selectedTeam,
+      dateRange,
+      totalUpdates: updates.length,
+      filteredCount: filtered.length
+    });
+  };
+
+  // Modify visibility change handler to ensure filters are preserved
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && user) {
+        // Save current filter state
+        const currentFilters = {
+          activeTab,
+          selectedTeam,
+          dateRange
+        };
+        
+        // Fetch fresh data
+        await fetchData(selectedTeam);
+        
+        // Restore filters
+        setActiveTab(currentFilters.activeTab);
+        setSelectedTeam(currentFilters.selectedTeam);
+        setDateRange(currentFilters.dateRange);
+        
+        toast.success('Dashboard refreshed');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user, activeTab, selectedTeam, dateRange]);
+
+  // Ensure filters are applied whenever filter states change
+  useEffect(() => {
+    if (dataLoaded) {
+      applyFilters();
+    }
+  }, [activeTab, selectedTeam, dateRange, dataLoaded]);
+
+  // Modify handleEditSuccess to maintain filters
+  const handleEditSuccess = async () => {
+    const currentFilters = {
+      activeTab,
+      selectedTeam,
+      dateRange
+    };
+    
+    await fetchData(selectedTeam);
+    
+    // Restore filters
+    setActiveTab(currentFilters.activeTab);
+    setSelectedTeam(currentFilters.selectedTeam);
+    setDateRange(currentFilters.dateRange);
+  };
+
+  // Remove all caching-related code and periodic refresh effects
+
+  const calculateStats = (data: DailyUpdate[]) => {
+    const stats = {
+      totalUpdates: data.length,
+      totalBlockers: data.filter(update => update.blocker_type).length,
+      completedTasks: data.filter(update => update.status === 'completed').length,
+      inProgressTasks: data.filter(update => update.status === 'in-progress').length,
+      stuckTasks: data.filter(update => update.status === 'blocked').length
+    };
+    setStats(stats);
+  };
+
+  // Filter data based on card type
+  const filterByCardType = (filterType: string): DailyUpdate[] => {
+    let filtered = [...historicalData];
+    
+    switch (filterType) {
       case 'recent':
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        filtered = filtered.filter(update => 
+        return filtered.filter(update => 
           new Date(update.created_at) >= sevenDaysAgo
         );
-        break;
       case 'blockers':
-        filtered = filtered.filter(update => update.blocker_type);
-        break;
+        return filtered.filter(update => update.blocker_type);
       case 'completed':
-        filtered = filtered.filter(update => update.status === 'completed');
-        break;
+        return filtered.filter(update => update.status === 'completed');
       case 'in-progress':
-        filtered = filtered.filter(update => update.status === 'in-progress');
-        break;
+        return filtered.filter(update => update.status === 'in-progress');
       case 'blocked':
-        filtered = filtered.filter(update => update.status === 'blocked');
-        break;
-    }
-
-    console.log('Filtered data count after applying filters:', filtered.length);
-    setFilteredData(filtered);
-    calculateStats(filtered);
-  };
-
-  // Add function to filter data by card type
-  const filterByCardType = (filterType: string) => {
-    // First clear any team filter if it exists
-    if (selectedTeam) {
-      setSelectedTeam('');
-    }
-    
-    // Set the active tab based on the card clicked
-    switch (filterType) {
-      case 'total':
-        setActiveTab('all');
-        break;
-      case 'completed':
-        setActiveTab('completed');
-        break;
-      case 'in-progress':
-        setActiveTab('in-progress');
-        break;
-      case 'blocked':
-        setActiveTab('blocked');
-        break;
+        return filtered.filter(update => update.status === 'blocked');
       default:
-        setActiveTab('all');
+        return filtered;
     }
-    
-    // Apply the filters immediately
-    setTimeout(() => {
-      applyFilters();
-    }, 100);
-    
-    // Provide visual feedback
-    toast.success(`Filtered by ${filterType === 'total' ? 'all updates' : filterType} status`);
   };
 
   useEffect(() => {
@@ -1021,6 +868,8 @@ export default function Dashboard() {
       let query = supabase
         .from('aditi_daily_updates')
         .select('*');
+
+      // Apply role-based filters
       if (user?.role === 'admin' && !teamFilter) {
         // No additional filters needed - admin sees all
       } else if (teamFilter) {
@@ -1033,9 +882,20 @@ export default function Dashboard() {
           return;
         }
       }
-      query = query.order('created_at', { ascending: false }).limit(300);
+
+      // Apply date range filter
+      if (dateRange.start) {
+        query = query.gte('created_at', `${dateRange.start}T00:00:00`);
+      }
+      if (dateRange.end) {
+        query = query.lte('created_at', `${dateRange.end}T23:59:59`);
+      }
+
+      query = query.order('created_at', { ascending: false });
+
       const { data, error } = await query;
       if (error) throw error;
+
       let updatesWithTeams = data || [];
       if (data && data.length > 0) {
         const teamIds = [...new Set(data.map(update => update.team_id))];
@@ -1043,6 +903,7 @@ export default function Dashboard() {
           .from('aditi_teams')
           .select('*')
           .in('id', teamIds);
+        
         updatesWithTeams = data.map(update => {
           const team = teamsData?.find(t => t.id === update.team_id);
           return {
@@ -1051,25 +912,47 @@ export default function Dashboard() {
           };
         });
       }
+
+      // Update state with new data
       setHistoricalData(updatesWithTeams);
-      setFilteredData(updatesWithTeams);
-      calculateStats(updatesWithTeams);
+      
+      // Apply current filters to new data
+      let filtered = [...updatesWithTeams];
+      
+      // Apply date range filter
+      filtered = filtered.filter(update => {
+        const updateDate = new Date(update.created_at).toISOString().split('T')[0];
+        return updateDate >= dateRange.start && updateDate <= dateRange.end;
+      });
+      
+      // Apply team filter
+      if (selectedTeam) {
+        filtered = filtered.filter(update => update.team_id === selectedTeam);
+      }
+      
+      // Apply tab filter
+      if (activeTab !== 'all') {
+        const filteredByType = filterByCardType(activeTab);
+        if (filteredByType) {
+          filtered = filteredByType;
+        }
+      }
+      
+      // Update filtered data and stats
+      setFilteredData(filtered);
+      calculateStats(filtered);
+
       const now = new Date();
       setLastRefreshed(now);
       setDataLoaded(true);
+
+      // No more caching needed
       if (user?.email) {
-        try {
-          storeHistoricalDataInChunks(user.email, updatesWithTeams);
-          localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
-        } catch (error) {
-          console.error('Error saving fetched data to localStorage:', error);
-        }
+        localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
       }
     } catch (error) {
-      console.error('Error silently fetching data:', error);
-      if (!dataLoaded) {
-        tryRecoverFromLocalStorage();
-      }
+      console.error('Error in silent data refresh:', error);
+      // Don't show error toast in silent refresh
     }
   };
 
@@ -1079,30 +962,6 @@ export default function Dashboard() {
     setEditingUpdate(update);
     setShowEditModal(true);
   };
-
-  // Add a function to handle successful edit
-  const handleEditSuccess = () => {
-    fetchData(selectedTeam);
-  };
-
-  // Remove isReturningFromTabSwitch() checks from periodic refresh
-  useEffect(() => {
-    if (dataLoaded && user) {
-      const refreshInterval = 5 * 60 * 1000; // 5 minutes
-      let lastRefreshTime = Date.now();
-      const intervalId = setInterval(() => {
-        if (document.visibilityState === 'visible') {
-          const timeSinceLastRefresh = Date.now() - lastRefreshTime;
-          if (timeSinceLastRefresh >= refreshInterval) {
-            console.log('Running periodic silent data refresh');
-            fetchDataSilently(selectedTeam);
-            lastRefreshTime = Date.now();
-          }
-        }
-      }, 30000);
-      return () => clearInterval(intervalId);
-    }
-  }, [dataLoaded, user, selectedTeam]);
 
   // Restore the Clear Cache button click handler
   const clearCache = () => {
@@ -1128,6 +987,77 @@ export default function Dashboard() {
       fetchTeamsBasedOnRole();
     }, 300);
   };
+
+  // Handle visibility changes for tab switches
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && user) {
+        // Save current filter state before potential refresh
+        const currentFilters = {
+          activeTab,
+          selectedTeam,
+          dateRange,
+          currentPage
+        };
+        
+        // Store current filters in sessionStorage (temporary storage)
+        sessionStorage.setItem('current_dashboard_filters', JSON.stringify(currentFilters));
+        
+        try {
+          // Attempt to refresh data silently
+          await fetchDataSilently(selectedTeam);
+          
+          // Restore filters and apply them
+          const savedFilters = sessionStorage.getItem('current_dashboard_filters');
+          if (savedFilters) {
+            const filters = JSON.parse(savedFilters);
+            
+            // Restore filter states
+            setActiveTab(filters.activeTab);
+            setSelectedTeam(filters.selectedTeam);
+            setDateRange(filters.dateRange);
+            setCurrentPage(filters.currentPage);
+            
+            // Apply filters to the new data
+            let filtered = [...historicalData];
+            
+            // Apply date range filter
+            filtered = filtered.filter(update => {
+              const updateDate = new Date(update.created_at).toISOString().split('T')[0];
+              return updateDate >= filters.dateRange.start && updateDate <= filters.dateRange.end;
+            });
+            
+            // Apply team filter
+            if (filters.selectedTeam) {
+              filtered = filtered.filter(update => update.team_id === filters.selectedTeam);
+            }
+            
+            // Apply tab filter
+            if (filters.activeTab !== 'all') {
+              filtered = filterByCardType(filters.activeTab);
+            }
+            
+            // Update filtered data and stats
+            setFilteredData(filtered);
+            calculateStats(filtered);
+          }
+          
+          // Clear temporary storage
+          sessionStorage.removeItem('current_dashboard_filters');
+        } catch (error) {
+          console.error('Error refreshing data after tab switch:', error);
+          toast.error('Failed to refresh data');
+        }
+      }
+    };
+
+    // Add visibility change listener
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user, activeTab, selectedTeam, dateRange, currentPage, historicalData]);
 
   return (
     <ProtectedRoute allowedRoles={['admin', 'manager']}>
