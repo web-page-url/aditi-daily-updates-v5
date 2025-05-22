@@ -475,65 +475,17 @@ export default function Dashboard() {
 
   // Add a new effect to handle visibility changes (tab switching)
   useEffect(() => {
-    // Track the last visibility change timestamp
-    let lastVisibilityChange = Date.now();
-    
-    // Function to handle visibility change
     const handleVisibilityChange = () => {
-      // Set a class on the body to indicate recent tab visibility change
       if (document.visibilityState === 'visible') {
-        console.log('Tab became visible, preventing unnecessary refreshes');
-        
-        // Store the timestamp when we came back to the tab
-        const now = Date.now();
-        const timeSinceLastChange = now - lastVisibilityChange;
-        lastVisibilityChange = now;
-        
-        // If we switched tabs recently (within last 10 seconds),
-        // prevent refresh by setting a flag
-        if (timeSinceLastChange < 10000) {
-          console.log('Recent tab switch detected, preventing refresh');
-          if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.setItem('returning_from_tab_switch', 'true');
-            
-            // Clear the flag after 3 seconds to allow future refreshes
-            setTimeout(() => {
-              sessionStorage.removeItem('returning_from_tab_switch');
-            }, 3000);
-          }
-        }
-        
-        // Check if the global prevention mechanism is active
-        const preventRefresh = typeof sessionStorage !== 'undefined' && 
-          (sessionStorage.getItem('returning_from_tab_switch') || 
-           sessionStorage.getItem('prevent_auto_refresh'));
-        
-        if (preventRefresh) {
-          console.log('Global tab switch prevention active');
-          return; // Defer to the global handler in _app.tsx
-        }
-        
-        // Set a flag directly on the document
-        document.body.classList.add('dashboard-tab-active');
-        
-        // Remove the class after a while
-        setTimeout(() => {
-          document.body.classList.remove('dashboard-tab-active');
-        }, 2000);
-      } else if (document.visibilityState === 'hidden') {
-        // Track when we leave the tab
-        lastVisibilityChange = Date.now();
+        fetchDataSilently(selectedTeam);
+        toast.success('Dashboard refreshed after tab switch');
       }
     };
-    
-    // Listen for visibility changes
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    // Clean up the event listener
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [selectedTeam]);
 
   // Also save teams data to localStorage
   useEffect(() => {
@@ -1026,7 +978,7 @@ export default function Dashboard() {
     // Helper function to get team name from teams array if aditi_teams is not present
     function team_name_from_teams(update: DailyUpdate) {
       if (update.team_id) {
-        const team = teams.find(t => t.id === update.team_id);
+        const team = (Array.isArray(teams) ? teams : []).find(t => t.id === update.team_id);
         return team?.team_name || '';
       }
       return '';
@@ -1044,38 +996,15 @@ export default function Dashboard() {
     if (isRefreshing) {
       return;
     }
-    
-    // Check if we're returning from a tab switch using the utility
-    if (isReturningFromTabSwitch()) {
-      console.log('Skipping manual data refresh due to returning from tab switch');
-      
-      // Show a message to the user
-      toast('Tab switch detected, refresh deferred', {
-        icon: 'ℹ️',
-        style: {
-          borderRadius: '10px',
-          background: '#333',
-          color: '#fff',
-        },
-      });
-      return; // Skip refresh if returning from tab switch
-    }
-    
     setIsRefreshing(true);
-    
-    // Set a temporary prevention flag
     preventNextTabSwitchRefresh();
-    
     try {
       await fetchData(selectedTeam);
       const now = new Date();
       setLastRefreshed(now);
-      
-      // Update localStorage with the refresh time
       if (user?.email) {
         localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
       }
-      
       toast.success('Data refreshed successfully');
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -1085,23 +1014,84 @@ export default function Dashboard() {
     }
   };
 
-  // Add a periodic refresh mechanism
+  // Add a silent data fetching function (no loading state, for background refresh)
+  const fetchDataSilently = async (teamFilter: string = '') => {
+    try {
+      console.log('Silent data refresh starting, teamFilter:', teamFilter);
+      let query = supabase
+        .from('aditi_daily_updates')
+        .select('*');
+      if (user?.role === 'admin' && !teamFilter) {
+        // No additional filters needed - admin sees all
+      } else if (teamFilter) {
+        query = query.eq('team_id', teamFilter);
+      } else if (user?.role === 'manager') {
+        const managerTeamIds = teams.map(team => team.id);
+        if (managerTeamIds.length > 0) {
+          query = query.in('team_id', managerTeamIds);
+        } else {
+          return;
+        }
+      }
+      query = query.order('created_at', { ascending: false }).limit(300);
+      const { data, error } = await query;
+      if (error) throw error;
+      let updatesWithTeams = data || [];
+      if (data && data.length > 0) {
+        const teamIds = [...new Set(data.map(update => update.team_id))];
+        const { data: teamsData } = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .in('id', teamIds);
+        updatesWithTeams = data.map(update => {
+          const team = teamsData?.find(t => t.id === update.team_id);
+          return {
+            ...update,
+            aditi_teams: team || null
+          };
+        });
+      }
+      setHistoricalData(updatesWithTeams);
+      setFilteredData(updatesWithTeams);
+      calculateStats(updatesWithTeams);
+      const now = new Date();
+      setLastRefreshed(now);
+      setDataLoaded(true);
+      if (user?.email) {
+        try {
+          storeHistoricalDataInChunks(user.email, updatesWithTeams);
+          localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
+        } catch (error) {
+          console.error('Error saving fetched data to localStorage:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error silently fetching data:', error);
+      if (!dataLoaded) {
+        tryRecoverFromLocalStorage();
+      }
+    }
+  };
+
+  // Add a function to handle edit button click
+  const handleEditClick = (e: React.MouseEvent, update: DailyUpdate) => {
+    e.stopPropagation(); // Prevent row expansion when clicking edit
+    setEditingUpdate(update);
+    setShowEditModal(true);
+  };
+
+  // Add a function to handle successful edit
+  const handleEditSuccess = () => {
+    fetchData(selectedTeam);
+  };
+
+  // Remove isReturningFromTabSwitch() checks from periodic refresh
   useEffect(() => {
-    // If we have data loaded, set up a periodic refresh
     if (dataLoaded && user) {
       const refreshInterval = 5 * 60 * 1000; // 5 minutes
       let lastRefreshTime = Date.now();
-      
       const intervalId = setInterval(() => {
-        // Check if the tab is active before refreshing
         if (document.visibilityState === 'visible') {
-          // Check if we've recently returned from a tab switch
-          if (isReturningFromTabSwitch()) {
-            console.log('Skipping refresh due to recent tab switch');
-            return;
-          }
-          
-          // Only refresh if enough time has passed
           const timeSinceLastRefresh = Date.now() - lastRefreshTime;
           if (timeSinceLastRefresh >= refreshInterval) {
             console.log('Running periodic silent data refresh');
@@ -1109,13 +1099,12 @@ export default function Dashboard() {
             lastRefreshTime = Date.now();
           }
         }
-      }, 30000); // Check every 30 seconds instead of waiting full 5 minutes
-      
+      }, 30000);
       return () => clearInterval(intervalId);
     }
   }, [dataLoaded, user, selectedTeam]);
 
-  // Modify the Clear Cache button click handler
+  // Restore the Clear Cache button click handler
   const clearCache = () => {
     if (user?.email) {
       // Clear all localStorage data related to the dashboard
@@ -1138,108 +1127,6 @@ export default function Dashboard() {
     setTimeout(() => {
       fetchTeamsBasedOnRole();
     }, 300);
-  };
-
-  // Add a silent data fetching function (no loading state, for background refresh)
-  const fetchDataSilently = async (teamFilter: string = '') => {
-    // Check if we're returning from a tab switch
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('returning_from_tab_switch')) {
-      console.log('Skipping silent data refresh due to returning from tab switch');
-      return; // Skip refresh if returning from tab switch
-    }
-    
-    try {
-      console.log('Silent data refresh starting, teamFilter:', teamFilter);
-      let query = supabase
-        .from('aditi_daily_updates')
-        .select('*');
-
-      // Admin with no team filter sees all data
-      if (user?.role === 'admin' && !teamFilter) {
-        // No additional filters needed - admin sees all
-      } 
-      // Admin with team filter or manager sees specific team data
-      else if (teamFilter) {
-        query = query.eq('team_id', teamFilter);
-      }
-      // Manager with no specific team selected sees all their teams' data
-      else if (user?.role === 'manager') {
-        const managerTeamIds = teams.map(team => team.id);
-        if (managerTeamIds.length > 0) {
-          query = query.in('team_id', managerTeamIds);
-        } else {
-          return; // No teams to fetch for
-        }
-      }
-
-      // Limit to 300 records for the silent update
-      query = query.order('created_at', { ascending: false }).limit(300);
-      
-      const { data, error } = await query;
-
-      if (error) throw error;
-      
-      // Fetch team data separately and add it to updates
-      let updatesWithTeams = data || [];
-      if (data && data.length > 0) {
-        // Get unique team IDs from updates
-        const teamIds = [...new Set(data.map(update => update.team_id))];
-        
-        // Fetch all relevant teams
-        const { data: teamsData } = await supabase
-          .from('aditi_teams')
-          .select('*')
-          .in('id', teamIds);
-        
-        // Add team data to each update
-        updatesWithTeams = data.map(update => {
-          const team = teamsData?.find(t => t.id === update.team_id);
-          return {
-            ...update,
-            aditi_teams: team || null
-          };
-        });
-      }
-      
-      // Update state with fetched data
-      setHistoricalData(updatesWithTeams);
-      setFilteredData(updatesWithTeams);
-      calculateStats(updatesWithTeams);
-      
-      const now = new Date();
-      setLastRefreshed(now);
-      setDataLoaded(true);
-      
-      // Update localStorage with latest data
-      if (user?.email) {
-        try {
-          storeHistoricalDataInChunks(user.email, updatesWithTeams);
-          localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
-        } catch (error) {
-          console.error('Error saving fetched data to localStorage:', error);
-        }
-      }
-    } catch (error) {
-      console.error('Error silently fetching data:', error);
-      // Don't show error messages to user when doing background refresh
-      
-      // Try to recover from localStorage if silent refresh fails
-      if (!dataLoaded) {
-        tryRecoverFromLocalStorage();
-      }
-    }
-  };
-
-  // Add a function to handle edit button click
-  const handleEditClick = (e: React.MouseEvent, update: DailyUpdate) => {
-    e.stopPropagation(); // Prevent row expansion when clicking edit
-    setEditingUpdate(update);
-    setShowEditModal(true);
-  };
-
-  // Add a function to handle successful edit
-  const handleEditSuccess = () => {
-    fetchData(selectedTeam);
   };
 
   return (
@@ -1426,7 +1313,7 @@ export default function Dashboard() {
                           className="bg-[#262d40] border border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                         >
                           <option value="">All Teams</option>
-                          {teams.map((team, index) => (
+                          {(Array.isArray(teams) ? teams : []).map((team, index) => (
                             <option key={index} value={team.id}>{team.team_name}</option>
                           ))}
                         </select>
@@ -1614,7 +1501,7 @@ export default function Dashboard() {
                               {filteredData.map((item, index) => {
                                 const rowId = `row-${index}`;
                                 const isExpanded = expandedRows[rowId] || false;
-                                const team = teams.find(t => t.id === item.team_id);
+                                const team = (Array.isArray(teams) ? teams : []).find(t => t.id === item.team_id);
 
                                 return (
                                   <React.Fragment key={rowId}>

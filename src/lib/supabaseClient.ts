@@ -40,83 +40,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   global: {
     fetch: async (url, options = {}) => {
-      // Check if we just returned from a tab switch
-      const isReturningFromTabSwitch = typeof window !== 'undefined' && 
-        (sessionStorage?.getItem('returning_from_tab_switch') || 
-         sessionStorage?.getItem('prevent_auto_refresh'));
-      
-      // Skip unnecessary fetches when returning from tab switch
-      if (isReturningFromTabSwitch && typeof url === 'string' && url.includes('/auth/')) {
-        console.log('Handling auth fetch during tab switch:', url);
-        
-        // Try to use cached user if available
-        const cachedUser = localStorage.getItem('aditi_user_cache');
-        const cachedSession = localStorage.getItem('aditi_supabase_auth');
-        
-        if (cachedUser || cachedSession) {
-          console.log('Using cached user/session during tab switch');
-          
-          // Return a response that maintains the session
-          return new Response(JSON.stringify({ 
-            data: { 
-              session: cachedSession ? JSON.parse(cachedSession) : null,
-              user: cachedUser ? JSON.parse(cachedUser) : null
-            },
-            error: null
-          }), {
-            status: 200,
-            headers: new Headers({
-              'Content-Type': 'application/json'
-            })
-          });
-        }
-        
-        // If no cached data, return a neutral response
-        return new Response(JSON.stringify({ 
-          data: { session: null },
-          error: null
-        }), {
-          status: 200,
-          headers: new Headers({
-            'Content-Type': 'application/json'
-          })
-        });
-      }
-      
-      // Add custom error handling for fetch operations
-      try {
-        const response = await fetch(url, options);
-        
-        // Handle 406 errors by attempting to refresh the token
-        if (response.status === 406) {
-          console.log('Received 406 error, attempting to refresh session...');
-          
-          // Try to refresh the session
-          const { data, error } = await supabase.auth.refreshSession();
-          
-          if (error || !data.session) {
-            console.error('Failed to refresh session after 406 error:', error);
-            // Let the original 406 response continue
-            return response;
-          }
-          
-          // Clone the options and update the Authorization header with the new token
-          const newOptions = { ...options };
-          if (newOptions.headers) {
-            // @ts-ignore - TypeScript may complain about this
-            newOptions.headers['Authorization'] = `Bearer ${data.session.access_token}`;
-          }
-          
-          // Retry the fetch with the new token
-          console.log('Retrying fetch with refreshed token');
-          return fetch(url, newOptions);
-        }
-        
-        return response;
-      } catch (error) {
-        console.error('Fetch error in Supabase client:', error);
-        throw error;
-      }
+      // Always call the original fetch, never block or fake API calls
+      return fetch(url, options);
     }
   }
 });

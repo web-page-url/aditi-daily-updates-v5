@@ -63,16 +63,41 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
   const fetchTeams = async () => {
     try {
       setLoadingTeams(true);
-      const { data, error } = await supabase
-        .from('aditi_teams')
-        .select('*')
-        .order('team_name', { ascending: true });
-
+      let data = [];
+      let error = null;
+      if (user?.role === 'admin') {
+        // Admin: fetch all teams
+        const res = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .order('team_name', { ascending: true });
+        data = res.data || [];
+        error = res.error;
+      } else if (user?.role === 'manager') {
+        // Manager: fetch only their teams
+        const res = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .eq('manager_email', user.email)
+          .order('team_name', { ascending: true });
+        data = res.data || [];
+        error = res.error;
+      } else if (update?.team_id) {
+        // Regular user: fetch only the team for this update
+        const res = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .eq('id', update.team_id)
+          .order('team_name', { ascending: true });
+        data = res.data || [];
+        error = res.error;
+      }
       if (error) throw error;
       setTeams(data || []);
     } catch (error) {
       console.error('Error fetching teams:', error);
       toast.error('Failed to load teams');
+      setTeams([]);
     } finally {
       setLoadingTeams(false);
     }
@@ -323,7 +348,7 @@ export default function EditUpdateModal({ isOpen, onClose, update, onSuccess }: 
                 disabled={loadingTeams || !isFieldEditable('team_id')}
               >
                 <option value="" disabled>Select team</option>
-                {teams.map(team => (
+                {(Array.isArray(teams) ? teams : []).map(team => (
                   <option key={team.id} value={team.id}>
                     {team.team_name}
                   </option>

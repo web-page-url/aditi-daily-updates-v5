@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import React from 'react';
 import Head from 'next/head';
 import { supabase, DailyUpdate } from '../lib/supabaseClient';
@@ -32,6 +32,145 @@ export default function UserDashboard() {
     inProgressTasks: 0,
     blockedTasks: 0
   });
+
+  const fetchUserUpdates = async () => {
+    try {
+      setIsLoading(true);
+      // Defensive normalization for dateRange
+      const normalizeDate = (d: string) => {
+        if (!d) return '';
+        if (/^\d{2}-\d{2}-\d{4}$/.test(d)) {
+          const [day, month, year] = d.split('-');
+          return `${year}-${month}-${day}`;
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+          return d;
+        }
+        // Try to parse any other format
+        const parsed = new Date(d);
+        if (!isNaN(parsed.getTime())) {
+          return parsed.toISOString().split('T')[0];
+        }
+        return d;
+      };
+      const start = normalizeDate(dateRange.start);
+      const end = normalizeDate(dateRange.end);
+      // Set a hard timeout to prevent the loader from getting stuck forever
+      const timeout = setTimeout(() => {
+        setIsLoading(false);
+        console.log('User updates fetch timeout reached, forcing loading state to false');
+      }, 15000); // 15 seconds max loading time
+      if (loadingTimeout) clearTimeout(loadingTimeout);
+      setLoadingTimeout(timeout);
+      const { data, error } = await supabase
+        .from('aditi_daily_updates')
+        .select('*')
+        .eq('employee_email', user?.email)
+        .gte('created_at', `${start}T00:00:00.000Z`)
+        .lte('created_at', `${end}T23:59:59.999Z`)
+        .order('created_at', { ascending: false });
+      if (error) {
+        // Check for 406 error (Not Acceptable)
+        if (error.code === '406' || error.message?.includes('406') || (error as any).status === 406) {
+          console.error('Session token issue detected (406 error). Attempting to refresh session...');
+          // Try to refresh the session
+          const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError || !sessionData.session) {
+            console.error('Failed to refresh session after 406 error:', refreshError);
+            // Force user to sign out and go to login page
+            await signOut();
+            return;
+          }
+          // Retry the fetch after successful token refresh
+          console.log('Session refreshed, retrying data fetch...');
+          const { data: retryData, error: retryError } = await supabase
+            .from('aditi_daily_updates')
+            .select('*')
+            .eq('employee_email', user?.email)
+            .gte('created_at', `${start}T00:00:00.000Z`)
+            .lte('created_at', `${end}T23:59:59.999Z`)
+            .order('created_at', { ascending: false });
+          if (retryError) {
+            throw retryError;
+          }
+          // Now fetch team data separately
+          if (retryData && retryData.length > 0) {
+            const teamIds = [...new Set(retryData.map(update => update.team_id))];
+            const { data: teamsData } = await supabase
+              .from('aditi_teams')
+              .select('*')
+              .in('id', teamIds);
+            // Merge team data with updates
+            const updatesWithTeams = retryData.map(update => {
+              const team = teamsData?.find(t => t.id === update.team_id);
+              return {
+                ...update,
+                aditi_teams: team || null
+              };
+            });
+            setUserUpdates(updatesWithTeams || []);
+            // Calculate stats with the new data
+            calculateStats(updatesWithTeams || []);
+            // Debug log
+            console.log('User updates fetched:', updatesWithTeams?.length || 0, 'items');
+          } else {
+            setUserUpdates([]);
+            // Reset stats when no data is available
+            calculateStats([]);
+            // Debug log
+            console.log('No user updates found');
+          }
+          setLastFetched(new Date());
+          setDataLoaded(true);
+          return;
+        }
+        throw error;
+      }
+      // Fetch team data separately
+      if (data && data.length > 0) {
+        const teamIds = [...new Set(data.map(update => update.team_id))];
+        const { data: teamsData } = await supabase
+          .from('aditi_teams')
+          .select('*')
+          .in('id', teamIds);
+        // Merge team data with updates
+        const updatesWithTeams = data.map(update => {
+          const team = teamsData?.find(t => t.id === update.team_id);
+          return {
+            ...update,
+            aditi_teams: team || null
+          };
+        });
+        setUserUpdates(updatesWithTeams || []);
+        // Calculate stats with the new data
+        calculateStats(updatesWithTeams || []);
+        // Debug log
+        console.log('User updates fetched:', updatesWithTeams?.length || 0, 'items');
+      } else {
+        setUserUpdates([]);
+        // Reset stats when no data is available
+        calculateStats([]);
+        // Debug log
+        console.log('No user updates found');
+      }
+      setLastFetched(new Date());
+      setDataLoaded(true);
+    } catch (error) {
+      console.error('Error fetching user updates:', error);
+      toast.error('Failed to load your updates');
+      // Even in case of error, provide empty data to prevent UI from being stuck
+      setUserUpdates([]);
+      calculateStats([]);
+    } finally {
+      setIsLoading(false);
+      if (loadingTimeout) clearTimeout(loadingTimeout);
+    }
+  };
+
+  const fetchUserUpdatesRef = useRef(fetchUserUpdates);
+  useEffect(() => {
+    fetchUserUpdatesRef.current = fetchUserUpdates;
+  }, [fetchUserUpdates]);
 
   useEffect(() => {
     if (user) {
@@ -103,22 +242,8 @@ export default function UserDashboard() {
 
   // Add a function for manual refresh
   const refreshData = async () => {
-    if (isReturningFromTabSwitch()) {
-      console.log('Skipping refresh due to tab switch');
-      toast('Tab switch detected, refresh deferred', {
-        icon: 'ℹ️',
-        style: {
-          borderRadius: '10px',
-          background: '#333',
-          color: '#fff',
-        },
-      });
-      return;
-    }
-    
     setIsLoading(true);
     preventNextTabSwitchRefresh();
-    
     try {
       await fetchUserUpdates();
       toast.success('Data refreshed successfully');
@@ -127,148 +252,6 @@ export default function UserDashboard() {
       toast.error('Failed to refresh data');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  // Modify your existing fetchUserUpdates function to check for tab switches
-  const fetchUserUpdates = async () => {
-    if (isReturningFromTabSwitch()) {
-      console.log('Skipping data fetch due to tab switch');
-      return;
-    }
-    
-    try {
-      setIsLoading(true);
-      
-      // Set a hard timeout to prevent the loader from getting stuck forever
-      const timeout = setTimeout(() => {
-        setIsLoading(false);
-        console.log('User updates fetch timeout reached, forcing loading state to false');
-      }, 15000); // 15 seconds max loading time
-      
-      if (loadingTimeout) clearTimeout(loadingTimeout);
-      setLoadingTimeout(timeout);
-      
-      const { data, error } = await supabase
-        .from('aditi_daily_updates')
-        .select('*')
-        .eq('employee_email', user?.email)
-        .gte('created_at', `${dateRange.start}T00:00:00.000Z`)
-        .lte('created_at', `${dateRange.end}T23:59:59.999Z`)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        // Check for 406 error (Not Acceptable)
-        if (error.code === '406' || error.message?.includes('406') || (error as any).status === 406) {
-          console.error('Session token issue detected (406 error). Attempting to refresh session...');
-          
-          // Try to refresh the session
-          const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
-          
-          if (refreshError || !sessionData.session) {
-            console.error('Failed to refresh session after 406 error:', refreshError);
-            // Force user to sign out and go to login page
-            await signOut();
-            return;
-          }
-          
-          // Retry the fetch after successful token refresh
-          console.log('Session refreshed, retrying data fetch...');
-          const { data: retryData, error: retryError } = await supabase
-            .from('aditi_daily_updates')
-            .select('*')
-            .eq('employee_email', user?.email)
-            .gte('created_at', `${dateRange.start}T00:00:00.000Z`)
-            .lte('created_at', `${dateRange.end}T23:59:59.999Z`)
-            .order('created_at', { ascending: false });
-            
-          if (retryError) {
-            throw retryError;
-          }
-          
-          // Now fetch team data separately
-          if (retryData && retryData.length > 0) {
-            const teamIds = [...new Set(retryData.map(update => update.team_id))];
-            const { data: teamsData } = await supabase
-              .from('aditi_teams')
-              .select('*')
-              .in('id', teamIds);
-            
-            // Merge team data with updates
-            const updatesWithTeams = retryData.map(update => {
-              const team = teamsData?.find(t => t.id === update.team_id);
-              return {
-                ...update,
-                aditi_teams: team || null
-              };
-            });
-            
-            setUserUpdates(updatesWithTeams || []);
-            // Calculate stats with the new data
-            calculateStats(updatesWithTeams || []);
-            
-            // Debug log
-            console.log('User updates fetched:', updatesWithTeams?.length || 0, 'items');
-          } else {
-            setUserUpdates([]);
-            // Reset stats when no data is available
-            calculateStats([]);
-            
-            // Debug log
-            console.log('No user updates found');
-          }
-          
-          setLastFetched(new Date());
-          setDataLoaded(true);
-          return;
-        }
-        
-        throw error;
-      }
-      
-      // Fetch team data separately
-      if (data && data.length > 0) {
-        const teamIds = [...new Set(data.map(update => update.team_id))];
-        const { data: teamsData } = await supabase
-          .from('aditi_teams')
-          .select('*')
-          .in('id', teamIds);
-        
-        // Merge team data with updates
-        const updatesWithTeams = data.map(update => {
-          const team = teamsData?.find(t => t.id === update.team_id);
-          return {
-            ...update,
-            aditi_teams: team || null
-          };
-        });
-        
-        setUserUpdates(updatesWithTeams || []);
-        // Calculate stats with the new data
-        calculateStats(updatesWithTeams || []);
-        
-        // Debug log
-        console.log('User updates fetched:', updatesWithTeams?.length || 0, 'items');
-      } else {
-        setUserUpdates([]);
-        // Reset stats when no data is available
-        calculateStats([]);
-        
-        // Debug log
-        console.log('No user updates found');
-      }
-      
-      setLastFetched(new Date());
-      setDataLoaded(true);
-    } catch (error) {
-      console.error('Error fetching user updates:', error);
-      toast.error('Failed to load your updates');
-      // Even in case of error, provide empty data to prevent UI from being stuck
-      setUserUpdates([]);
-      calculateStats([]);
-    } finally {
-      setIsLoading(false);
-      if (loadingTimeout) clearTimeout(loadingTimeout);
     }
   };
 
@@ -281,9 +264,16 @@ export default function UserDashboard() {
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
+    // Normalize to YYYY-MM-DD if user enters DD-MM-YYYY or other formats
+    let normalized = value;
+    // If value matches DD-MM-YYYY, convert to YYYY-MM-DD
+    if (/^\d{2}-\d{2}-\d{4}$/.test(value)) {
+      const [day, month, year] = value.split('-');
+      normalized = `${year}-${month}-${day}`;
+    }
     setDateRange(prev => ({
       ...prev,
-      [name]: value
+      [name]: normalized
     }));
   };
 
@@ -341,6 +331,19 @@ export default function UserDashboard() {
     // Regular users can only edit tasks that are in To Do or In Progress status
     return status === 'to-do' || status === 'in-progress';
   };
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchUserUpdatesRef.current();
+        toast.success('Dashboard refreshed after tab switch');
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   return (
     <ProtectedRoute allowedRoles={['user', 'manager', 'admin']}>
