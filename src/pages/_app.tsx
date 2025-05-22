@@ -5,10 +5,17 @@ import Head from 'next/head';
 import { AuthProvider } from "@/lib/authContext";
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { ensureTokenInRequests } from "@/lib/tabSwitchUtil";
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
   const [isAdminRoute, setIsAdminRoute] = useState(false);
+
+  // Initialize token persistence for API requests
+  useEffect(() => {
+    // Ensure tokens are included in all API requests
+    ensureTokenInRequests();
+  }, []);
 
   // Route-specific handling
   useEffect(() => {

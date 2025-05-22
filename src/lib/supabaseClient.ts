@@ -12,6 +12,25 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Supabase credentials are missing. Please check your environment variables.');
 }
 
+// Get current auth token from localStorage
+export const getSupabaseToken = (): string | null => {
+  try {
+    if (typeof window === 'undefined') return null;
+    
+    // Try to get the token from localStorage
+    const storageKey = 'aditi_supabase_auth';
+    const authData = localStorage.getItem(storageKey);
+    
+    if (!authData) return null;
+    
+    const parsedData = JSON.parse(authData);
+    return parsedData?.access_token || null;
+  } catch (error) {
+    console.error('Error getting Supabase token:', error);
+    return null;
+  }
+};
+
 // Create client with auto refresh and token persistence
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -36,8 +55,23 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
   global: {
     fetch: async (url, options = {}) => {
-      // Always call the original fetch, never block or fake API calls
-      return fetch(url, options);
+      // Get the current headers from options
+      const headers = new Headers(options.headers || {});
+      
+      // Get the auth token and add it to the request if available
+      const token = getSupabaseToken();
+      if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+      
+      // Create new options with updated headers
+      const updatedOptions = {
+        ...options,
+        headers
+      };
+      
+      // Always call the original fetch with updated options
+      return fetch(url, updatedOptions);
     }
   }
 });

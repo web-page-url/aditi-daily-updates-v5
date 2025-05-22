@@ -12,6 +12,7 @@ const RETURNING_FLAG = 'returning_from_tab_switch';
 const PREVENT_REFRESH = 'prevent_auto_refresh';
 const TAB_ACTIVE_CLASS = 'tab-just-activated';
 const TAB_ID_KEY = 'aditi_tab_id';
+const AUTH_TOKEN_KEY = 'aditi_supabase_auth';
 
 /**
  * Generates a unique tab ID if one doesn't exist already
@@ -27,6 +28,24 @@ export const getTabId = (): string => {
   }
   
   return tabId;
+};
+
+/**
+ * Gets the current auth token from localStorage
+ */
+export const getAuthToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    const authData = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (!authData) return null;
+    
+    const parsedData = JSON.parse(authData);
+    return parsedData?.access_token || null;
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return null;
+  }
 };
 
 /**
@@ -80,6 +99,7 @@ export const saveTabState = (additionalData = {}): void => {
       tabId: getTabId(),
       lastActive: Date.now(),
       route: window.location.pathname,
+      authToken: getAuthToken(), // Store current auth token
       ...additionalData
     };
     localStorage.setItem(TAB_STATE_KEY, JSON.stringify(tabState));
@@ -117,6 +137,16 @@ export const applySwitchPreventionToFetch = (): void => {
 
   // Override fetch: always call the original fetch, never block or fake API calls
   window.fetch = function(...args) {
+    // Add auth token to request if available
+    if (args.length >= 2 && typeof args[1] === 'object') {
+      const token = getAuthToken();
+      if (token) {
+        args[1].headers = {
+          ...(args[1].headers || {}),
+          Authorization: `Bearer ${token}`
+        };
+      }
+    }
     return originalFetch.apply(this, args);
   };
 
@@ -141,5 +171,43 @@ export const applySwitchPreventionToFetch = (): void => {
   };
   history.replaceState = function(...args) {
     return originalReplaceState.apply(this, args);
+  };
+};
+
+/**
+ * Ensures token is included in all API requests, especially after tab switches
+ */
+export const ensureTokenInRequests = (): void => {
+  if (typeof window === 'undefined') return;
+  
+  // Add a simple window-level API request interceptor
+  const originalFetch = window.fetch;
+  window.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
+    // Clone init object to avoid mutating the original
+    const updatedInit: RequestInit = init ? { ...init } : {};
+    
+    // Get auth token
+    const token = getAuthToken();
+    
+    // Only add token for same-origin requests or Supabase API calls
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const isSameOrigin = url.startsWith('/') || url.startsWith(window.location.origin);
+    const isSupabaseCall = url.includes(process.env.NEXT_PUBLIC_SUPABASE_URL || '');
+    
+    if ((isSameOrigin || isSupabaseCall) && token) {
+      // Initialize headers if not present
+      const headers = new Headers(updatedInit.headers || {});
+      
+      // Add authorization header if not already present
+      if (!headers.has('Authorization') && !headers.has('authorization')) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+      
+      // Update the init object with the new headers
+      updatedInit.headers = headers;
+    }
+    
+    // Call original fetch with possibly modified options
+    return originalFetch.call(this, input, updatedInit);
   };
 }; 
