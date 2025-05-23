@@ -1,47 +1,96 @@
 /**
- * Tab Switch Prevention Utility
+ * Tab Switch Utility - Simplified Version
  * 
- * This utility helps prevent unwanted page refreshes when users switch tabs
- * by providing helper functions to detect tab visibility changes and control
- * behavior when returning to the tab.
+ * Contains only essential functions for handling tab switches and authentication
  */
-
-// Set a common key for all tab state storage
-const TAB_STATE_KEY = 'aditi_tab_state';
-const RETURNING_FLAG = 'returning_from_tab_switch';
-const PREVENT_REFRESH = 'prevent_auto_refresh';
-const TAB_ACTIVE_CLASS = 'tab-just-activated';
-const TAB_ID_KEY = 'aditi_tab_id';
-const AUTH_TOKEN_KEY = 'aditi_supabase_auth';
 
 /**
- * Generates a unique tab ID if one doesn't exist already
+ * Gets the current auth token from localStorage - Vercel Production Compatible
  */
-export const getTabId = (): string => {
-  if (typeof window === 'undefined') return '';
-  
-  // Get existing tab ID or create a new one
-  let tabId = sessionStorage.getItem(TAB_ID_KEY);
-  if (!tabId) {
-    tabId = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    sessionStorage.setItem(TAB_ID_KEY, tabId);
-  }
-  
-  return tabId;
-};
-
-/**
- * Gets the current auth token from localStorage
- */
-export const getAuthToken = (): string | null => {
+export const getAuthToken = async (): Promise<string | null> => {
   if (typeof window === 'undefined') return null;
   
   try {
-    const authData = localStorage.getItem(AUTH_TOKEN_KEY);
-    if (!authData) return null;
-    
-    const parsedData = JSON.parse(authData);
-    return parsedData?.access_token || null;
+    // Method 1: Try to get from Supabase client directly if available
+    if (typeof window !== 'undefined' && (window as any).supabase) {
+      try {
+        const { data } = await (window as any).supabase.auth.getSession();
+        if (data.session?.access_token) {
+          console.log('Found token from global supabase client');
+          return data.session.access_token;
+        }
+      } catch (e) {
+        console.log('Could not get session from global supabase client');
+      }
+    }
+
+    // Method 2: Check all possible Supabase localStorage keys
+    const possibleKeys = [
+      // Standard Supabase key pattern
+      `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0] || ''}-auth-token`,
+      // Alternative patterns
+      'sb-auth-token',
+      'supabase.auth.token',
+      'aditi-supabase-auth',
+      'sb-localhost-auth-token'
+    ];
+
+    // Also scan for any keys that contain supabase auth patterns
+    const allKeys = Object.keys(localStorage);
+    const supabaseKeys = allKeys.filter(key => 
+      key.includes('sb-') && key.includes('auth') ||
+      key.includes('supabase') && key.includes('auth') ||
+      key.includes('sb-') && key.includes('token')
+    );
+
+    // Combine both approaches
+    const keysToCheck = [...possibleKeys, ...supabaseKeys];
+
+    for (const key of keysToCheck) {
+      try {
+        const data = localStorage.getItem(key);
+        if (!data) continue;
+
+        const parsedData = JSON.parse(data);
+        
+        // Check various possible structures
+        if (parsedData?.access_token) {
+          console.log('Found token using key:', key);
+          return parsedData.access_token;
+        }
+        
+        if (parsedData?.session?.access_token) {
+          console.log('Found session token using key:', key);
+          return parsedData.session.access_token;
+        }
+
+        if (parsedData?.data?.session?.access_token) {
+          console.log('Found nested session token using key:', key);
+          return parsedData.data.session.access_token;
+        }
+
+        // Check if the value itself is a token (JWT pattern)
+        if (typeof parsedData === 'string' && parsedData.includes('.') && parsedData.length > 100) {
+          console.log('Found direct token using key:', key);
+          return parsedData;
+        }
+        
+      } catch (e) {
+        // If JSON parse fails, check if it's a direct token string
+        try {
+          const rawData = localStorage.getItem(key);
+          if (rawData && typeof rawData === 'string' && rawData.includes('.') && rawData.length > 100) {
+            console.log('Found raw token using key:', key);
+            return rawData;
+          }
+        } catch (e2) {
+          continue;
+        }
+      }
+    }
+
+    console.warn('No auth token found in localStorage. Available keys:', allKeys.filter(k => k.includes('auth') || k.includes('token') || k.includes('sb-')));
+    return null;
   } catch (error) {
     console.error('Error getting auth token:', error);
     return null;
@@ -49,165 +98,187 @@ export const getAuthToken = (): string | null => {
 };
 
 /**
- * Checks if the current view state is due to returning from a tab switch
+ * Synchronous version for immediate use
  */
-export const isReturningFromTabSwitch = (): boolean => {
-  if (typeof window === 'undefined') return false;
+export const getAuthTokenSync = (): string | null => {
+  if (typeof window === 'undefined') return null;
   
-  return !!(
-    sessionStorage.getItem(RETURNING_FLAG) || 
-    sessionStorage.getItem(PREVENT_REFRESH) ||
-    document.body.classList.contains(TAB_ACTIVE_CLASS) ||
-    document.body.classList.contains('dashboard-tab-active')
-  );
+  try {
+    // Quick localStorage scan for immediate use
+    const allKeys = Object.keys(localStorage);
+    const supabaseKeys = allKeys.filter(key => 
+      key.includes('sb-') && key.includes('auth') ||
+      key.includes('supabase') && key.includes('auth') ||
+      key.includes('aditi-supabase-auth')
+    );
+
+    for (const key of supabaseKeys) {
+      try {
+        const data = localStorage.getItem(key);
+        if (!data) continue;
+
+        const parsedData = JSON.parse(data);
+        
+        if (parsedData?.access_token) {
+          return parsedData.access_token;
+        }
+        
+        if (parsedData?.session?.access_token) {
+          return parsedData.session.access_token;
+        }
+
+        if (parsedData?.data?.session?.access_token) {
+          return parsedData.data.session.access_token;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error getting auth token sync:', error);
+    return null;
+  }
 };
 
 /**
- * Sets flags to prevent refresh on the next tab switch return
+ * Simple function to prevent aggressive refreshing (mainly for UX feedback)
  */
 export const preventNextTabSwitchRefresh = (): void => {
   if (typeof window === 'undefined') return;
   
-  sessionStorage.setItem(PREVENT_REFRESH, Date.now().toString());
+  // Just set a simple flag for a short time to prevent rapid refreshes
+  sessionStorage.setItem('prevent_rapid_refresh', Date.now().toString());
   
-  // Also set the tab's last active timestamp in localStorage to persist across refreshes
-  try {
-    const tabState = {
-      tabId: getTabId(),
-      lastActive: Date.now(),
-      route: window.location.pathname
-    };
-    localStorage.setItem(TAB_STATE_KEY, JSON.stringify(tabState));
-  } catch (e) {
-    console.error('Error saving tab state:', e);
-  }
-  
-  // Clear the flag after some time
+  // Clear the flag after a short time
   setTimeout(() => {
-    sessionStorage.removeItem(PREVENT_REFRESH);
-  }, 5000);
+    sessionStorage.removeItem('prevent_rapid_refresh');
+  }, 2000);
 };
 
 /**
- * Stores the current application state for the tab
+ * Simple check for tab switch return (mainly for debugging/logging)
+ */
+export const isReturningFromTabSwitch = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  
+  // Check if we recently set the prevent refresh flag
+  const preventFlag = sessionStorage.getItem('prevent_rapid_refresh');
+  if (preventFlag) {
+    const timestamp = parseInt(preventFlag);
+    const now = Date.now();
+    // If less than 2 seconds ago, consider it a tab switch return
+    return (now - timestamp) < 2000;
+  }
+  
+  return false;
+};
+
+/**
+ * Ensures token is included in all API requests, especially after tab switches
+ * Enhanced for Vercel production environment
+ */
+export const ensureTokenInRequests = (): void => {
+  if (typeof window === 'undefined') return;
+  
+  const originalFetch = window.fetch;
+  window.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
+    const updatedInit: RequestInit = init ? { ...init } : {};
+    
+    // Get URL string
+    const url = typeof input === 'string' ? input : 
+                input instanceof URL ? input.href : 
+                input.url;
+    
+    // Only add token for same-origin requests or Supabase API calls
+    const isSameOrigin = url.startsWith('/') || url.startsWith(window.location.origin);
+    const isSupabaseCall = url.includes(process.env.NEXT_PUBLIC_SUPABASE_URL || '') || 
+                          url.includes('supabase.co') || 
+                          url.includes('supabase.com');
+    
+    if (isSameOrigin || isSupabaseCall) {
+      // Use sync version first for immediate availability
+      let token = getAuthTokenSync();
+      
+      // If no token found synchronously, try async for completeness
+      if (!token) {
+        try {
+          token = await getAuthToken();
+        } catch (e) {
+          console.log('Async token fetch failed:', e);
+        }
+      }
+      
+      if (token) {
+        const headers = new Headers(updatedInit.headers || {});
+        
+        if (!headers.has('Authorization') && !headers.has('authorization')) {
+          headers.set('Authorization', `Bearer ${token}`);
+          console.log('Added auth token to request:', url);
+        }
+        
+        updatedInit.headers = headers;
+      } else {
+        console.warn('No auth token available for request:', url);
+      }
+    }
+    
+    return originalFetch.call(this, input, updatedInit);
+  };
+};
+
+/**
+ * Simple tab state save for auth context compatibility
  */
 export const saveTabState = (additionalData = {}): void => {
   if (typeof window === 'undefined') return;
   
   try {
     const tabState = {
-      tabId: getTabId(),
       lastActive: Date.now(),
       route: window.location.pathname,
-      authToken: getAuthToken(), // Store current auth token
       ...additionalData
     };
-    localStorage.setItem(TAB_STATE_KEY, JSON.stringify(tabState));
+    sessionStorage.setItem('simple_tab_state', JSON.stringify(tabState));
   } catch (e) {
     console.error('Error saving tab state:', e);
   }
 };
 
 /**
- * Restores state when returning to a tab
+ * Enhanced session recovery for Vercel production
  */
-export const restoreTabState = (): any => {
-  if (typeof window === 'undefined') return null;
+export const recoverSessionAfterTabSwitch = async (): Promise<boolean> => {
+  if (typeof window === 'undefined') return false;
   
   try {
-    const savedState = localStorage.getItem(TAB_STATE_KEY);
-    if (!savedState) return null;
-    
-    return JSON.parse(savedState);
-  } catch (e) {
-    console.error('Error restoring tab state:', e);
-    return null;
+    // Try to get the token first
+    const token = await getAuthToken();
+    if (!token) {
+      console.warn('No token found for session recovery');
+      return false;
+    }
+
+    // If we have a global supabase client, try to refresh the session
+    if ((window as any).supabase?.auth?.refreshSession) {
+      try {
+        const { data, error } = await (window as any).supabase.auth.refreshSession();
+        if (error) {
+          console.error('Failed to refresh session:', error);
+          return false;
+        }
+        console.log('Session refreshed successfully after tab switch');
+        return true;
+      } catch (refreshError) {
+        console.error('Error during session refresh:', refreshError);
+        return false;
+      }
+    }
+
+    return true; // Token exists, assume session is valid
+  } catch (error) {
+    console.error('Error in session recovery:', error);
+    return false;
   }
-};
-
-/**
- * Applies the prevention mechanism specifically for fetch/XHR requests
- * Can be used with a custom fetch wrapper
- */
-export const applySwitchPreventionToFetch = (): void => {
-  if (typeof window === 'undefined') return;
-
-  // Store original fetch
-  const originalFetch = window.fetch;
-
-  // Override fetch: always call the original fetch, never block or fake API calls
-  window.fetch = function(...args) {
-    // Add auth token to request if available
-    if (args.length >= 2 && typeof args[1] === 'object') {
-      const token = getAuthToken();
-      if (token) {
-        args[1].headers = {
-          ...(args[1].headers || {}),
-          Authorization: `Bearer ${token}`
-        };
-      }
-    }
-    return originalFetch.apply(this, args);
-  };
-
-  // Keep the rest of the tab state/session logic if needed, but do not block fetches
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      saveTabState({ lastVisible: Date.now() });
-      setTimeout(() => {
-        sessionStorage.removeItem('returning_from_tab_switch');
-        document.body.classList.remove('tab-just-activated');
-      }, 2500);
-    } else {
-      saveTabState({ lastHidden: Date.now() });
-    }
-  }, true);
-
-  // Keep history override if needed, but do not block navigation based on tab switch
-  const originalPushState = history.pushState;
-  const originalReplaceState = history.replaceState;
-  history.pushState = function(...args) {
-    return originalPushState.apply(this, args);
-  };
-  history.replaceState = function(...args) {
-    return originalReplaceState.apply(this, args);
-  };
-};
-
-/**
- * Ensures token is included in all API requests, especially after tab switches
- */
-export const ensureTokenInRequests = (): void => {
-  if (typeof window === 'undefined') return;
-  
-  // Add a simple window-level API request interceptor
-  const originalFetch = window.fetch;
-  window.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
-    // Clone init object to avoid mutating the original
-    const updatedInit: RequestInit = init ? { ...init } : {};
-    
-    // Get auth token
-    const token = getAuthToken();
-    
-    // Only add token for same-origin requests or Supabase API calls
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const isSameOrigin = url.startsWith('/') || url.startsWith(window.location.origin);
-    const isSupabaseCall = url.includes(process.env.NEXT_PUBLIC_SUPABASE_URL || '');
-    
-    if ((isSameOrigin || isSupabaseCall) && token) {
-      // Initialize headers if not present
-      const headers = new Headers(updatedInit.headers || {});
-      
-      // Add authorization header if not already present
-      if (!headers.has('Authorization') && !headers.has('authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
-      }
-      
-      // Update the init object with the new headers
-      updatedInit.headers = headers;
-    }
-    
-    // Call original fetch with possibly modified options
-    return originalFetch.call(this, input, updatedInit);
-  };
 }; 

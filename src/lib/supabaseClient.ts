@@ -12,67 +12,108 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Supabase credentials are missing. Please check your environment variables.');
 }
 
+// Create the Supabase client with enhanced configuration for Vercel
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+    // Enhanced settings for production
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    storageKey: 'aditi-supabase-auth',
+    flowType: 'pkce'
+  },
+  // Add retry logic for production
+  global: {
+    headers: {
+      'x-my-custom-header': 'aditi-daily-updates',
+    },
+  },
+});
+
+// Make supabase client available globally for session recovery
+if (typeof window !== 'undefined') {
+  (window as any).supabase = supabase;
+  console.log('Supabase client made available globally for session recovery');
+}
+
 // Get current auth token from localStorage
-export const getSupabaseToken = (): string | null => {
+export const getSupabaseToken = async (): Promise<string | null> => {
   try {
     if (typeof window === 'undefined') return null;
     
-    // Try to get the token from localStorage
-    const storageKey = 'aditi_supabase_auth';
-    const authData = localStorage.getItem(storageKey);
+    // Try to get the current session first
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (!error && data.session?.access_token) {
+        console.log('Found token from current session');
+        return data.session.access_token;
+      }
+    } catch (sessionError) {
+      console.log('Could not get current session:', sessionError);
+    }
     
-    if (!authData) return null;
+    // Fallback to localStorage scanning
+    const keys = Object.keys(localStorage);
+    const authKey = keys.find(key => 
+      (key.includes('sb-') && key.includes('auth')) ||
+      key.includes('aditi-supabase-auth')
+    );
     
-    const parsedData = JSON.parse(authData);
-    return parsedData?.access_token || null;
+    if (authKey) {
+      const authData = localStorage.getItem(authKey);
+      if (authData) {
+        try {
+          const parsed = JSON.parse(authData);
+          const token = parsed?.access_token || parsed?.session?.access_token || null;
+          if (token) {
+            console.log('Found token from localStorage:', authKey);
+            return token;
+          }
+        } catch (e) {
+          console.log('Error parsing auth data from key:', authKey);
+        }
+      }
+    }
+    
+    console.warn('No auth token found');
+    return null;
   } catch (error) {
     console.error('Error getting Supabase token:', error);
     return null;
   }
 };
 
-// Create client with auto refresh and token persistence
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storageKey: 'aditi_supabase_auth',
-    // Note: Session expiration is set to 7 days in the OTP signin options
-    // The actual expiration period is controlled by Supabase project settings
-    // and the options provided during sign-in
-    storage: {
-      getItem: (key) => {
-        return localStorage.getItem(key);
-      },
-      setItem: (key, value) => {
-        localStorage.setItem(key, value);
-      },
-      removeItem: (key) => {
-        localStorage.removeItem(key);
+// Auth state change listener with enhanced error handling
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log('Auth state changed:', event);
+  
+  if (event === 'SIGNED_IN' && session) {
+    console.log('User signed in successfully');
+    // Store session info for recovery
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('aditi-last-auth-event', JSON.stringify({
+          event,
+          timestamp: Date.now(),
+          hasSession: !!session
+        }));
+      } catch (e) {
+        console.error('Error storing auth event:', e);
       }
     }
-  },
-  global: {
-    fetch: async (url, options = {}) => {
-      // Get the current headers from options
-      const headers = new Headers(options.headers || {});
-      
-      // Get the auth token and add it to the request if available
-      const token = getSupabaseToken();
-      if (token && !headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
+  } else if (event === 'SIGNED_OUT') {
+    console.log('User signed out');
+    // Clean up stored auth info
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('aditi-last-auth-event');
+      } catch (e) {
+        console.error('Error cleaning up auth event:', e);
       }
-      
-      // Create new options with updated headers
-      const updatedOptions = {
-        ...options,
-        headers
-      };
-      
-      // Always call the original fetch with updated options
-      return fetch(url, updatedOptions);
     }
+  } else if (event === 'TOKEN_REFRESHED' && session) {
+    console.log('Token refreshed successfully');
   }
 });
 

@@ -569,7 +569,7 @@ export default function Dashboard() {
       
       if (loadingTimeout) clearTimeout(loadingTimeout);
       setLoadingTimeout(timeout);
-
+      
       let query = supabase
         .from('aditi_daily_updates')
         .select('*');
@@ -602,7 +602,7 @@ export default function Dashboard() {
       }
 
       query = query.order('created_at', { ascending: false });
-
+      
       const { data, error } = await query;
       if (error) throw error;
 
@@ -622,7 +622,7 @@ export default function Dashboard() {
           };
         });
       }
-
+      
       // Update state with fetched data
       setHistoricalData(updatesWithTeams);
       
@@ -630,11 +630,11 @@ export default function Dashboard() {
       setTimeout(() => {
         applyFilters(updatesWithTeams);
       }, 0);
-
+      
       const now = new Date();
       setLastRefreshed(now);
       setDataLoaded(true);
-
+      
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load updates');
@@ -654,7 +654,7 @@ export default function Dashboard() {
     if (!updates || updates.length === 0) {
       setFilteredData([]);
       calculateStats([]);
-      return;
+                return;
     }
 
     let filtered = [...updates];
@@ -694,6 +694,8 @@ export default function Dashboard() {
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && user) {
+        console.log('Tab became visible, attempting to refresh data and restore filters');
+        
         // Save current filter state
         const currentFilters = {
           activeTab,
@@ -701,15 +703,48 @@ export default function Dashboard() {
           dateRange
         };
         
-        // Fetch fresh data
-        await fetchData(selectedTeam);
-        
-        // Restore filters
-        setActiveTab(currentFilters.activeTab);
-        setSelectedTeam(currentFilters.selectedTeam);
-        setDateRange(currentFilters.dateRange);
-        
-        toast.success('Dashboard refreshed');
+        try {
+          // Try to recover session first
+          const { recoverSessionAfterTabSwitch } = await import('../lib/tabSwitchUtil');
+          const sessionRecovered = await recoverSessionAfterTabSwitch();
+          
+          if (!sessionRecovered) {
+            console.warn('Session recovery failed, but continuing with data fetch');
+          }
+          
+          // Fetch fresh data
+          console.log('Fetching fresh data with current filters:', currentFilters);
+          await fetchData(selectedTeam);
+          
+          // Give a small delay to ensure data is set
+          setTimeout(() => {
+            // Restore filters
+            console.log('Restoring filters after data fetch');
+            setActiveTab(currentFilters.activeTab);
+            setSelectedTeam(currentFilters.selectedTeam);
+            setDateRange(currentFilters.dateRange);
+            
+            // Force apply filters after restoration
+            setTimeout(() => {
+              console.log('Force applying filters with restored state');
+              applyFilters();
+            }, 100);
+          }, 200);
+          
+          console.log('Dashboard refreshed successfully after tab switch');
+        } catch (error) {
+          console.error('Error during tab switch recovery:', error);
+          // Fallback: just try to refresh data without session recovery
+          try {
+            await fetchData(selectedTeam);
+            setActiveTab(currentFilters.activeTab);
+            setSelectedTeam(currentFilters.selectedTeam);
+            setDateRange(currentFilters.dateRange);
+            setTimeout(() => applyFilters(), 100);
+          } catch (fallbackError) {
+            console.error('Fallback data fetch also failed:', fallbackError);
+          }
+        }
       }
     };
 
@@ -758,7 +793,7 @@ export default function Dashboard() {
   // Filter data based on card type
   const filterByCardType = (filterType: string): DailyUpdate[] => {
     let filtered = [...historicalData];
-    
+
     switch (filterType) {
       case 'recent':
         const sevenDaysAgo = new Date();
@@ -895,7 +930,7 @@ export default function Dashboard() {
 
       const { data, error } = await query;
       if (error) throw error;
-
+      
       let updatesWithTeams = data || [];
       if (data && data.length > 0) {
         const teamIds = [...new Set(data.map(update => update.team_id))];
@@ -912,7 +947,7 @@ export default function Dashboard() {
           };
         });
       }
-
+      
       // Update state with new data
       setHistoricalData(updatesWithTeams);
       
@@ -941,16 +976,16 @@ export default function Dashboard() {
       // Update filtered data and stats
       setFilteredData(filtered);
       calculateStats(filtered);
-
+      
       const now = new Date();
       setLastRefreshed(now);
       setDataLoaded(true);
-
+      
       // No more caching needed
       if (user?.email) {
-        localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
+          localStorage.setItem(`dashboard_lastRefreshed_${user.email}`, now.toISOString());
       }
-    } catch (error) {
+        } catch (error) {
       console.error('Error in silent data refresh:', error);
       // Don't show error toast in silent refresh
     }

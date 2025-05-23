@@ -265,10 +265,54 @@ export default function UserDashboard() {
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && user) {
-        const currentFilter = activeFilter;
-        await fetchUserUpdates();
-        // Ensure the active filter is maintained
-        setActiveFilter(currentFilter);
+        console.log('User dashboard tab became visible, attempting to refresh and restore filters');
+        
+        // Save current filter state
+        const currentFilters = {
+          activeFilter,
+          dateRange
+        };
+        
+        try {
+          // Try to recover session first
+          const { recoverSessionAfterTabSwitch } = await import('../lib/tabSwitchUtil');
+          const sessionRecovered = await recoverSessionAfterTabSwitch();
+          
+          if (!sessionRecovered) {
+            console.warn('Session recovery failed, but continuing with data fetch');
+          }
+          
+          // Fetch fresh data
+          console.log('Fetching fresh user data with current filters:', currentFilters);
+          await fetchUserUpdates();
+          
+          // Give a small delay to ensure data is set
+          setTimeout(() => {
+            // Restore filters
+            console.log('Restoring user dashboard filters after data fetch');
+            setActiveFilter(currentFilters.activeFilter);
+            setDateRange(currentFilters.dateRange);
+            
+            // Force apply filters after restoration
+            setTimeout(() => {
+              console.log('Force applying user dashboard filters with restored state');
+              applyFilters();
+            }, 100);
+          }, 200);
+          
+          console.log('User dashboard refreshed successfully after tab switch');
+        } catch (error) {
+          console.error('Error during user dashboard tab switch recovery:', error);
+          // Fallback: just try to refresh data without session recovery
+          try {
+            await fetchUserUpdates();
+            setActiveFilter(currentFilters.activeFilter);
+            setDateRange(currentFilters.dateRange);
+            setTimeout(() => applyFilters(), 100);
+          } catch (fallbackError) {
+            console.error('Fallback user data fetch also failed:', fallbackError);
+          }
+        }
       }
     };
 
@@ -276,7 +320,7 @@ export default function UserDashboard() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [user, activeFilter]);
+  }, [user, activeFilter, dateRange]);
 
   // Ensure filters are applied whenever activeFilter changes
   useEffect(() => {
