@@ -16,7 +16,7 @@ export default function App({ Component, pageProps }: AppProps) {
     // Ensure tokens are included in all API requests
     ensureTokenInRequests();
   }, []);
-
+//
   // Route-specific handling
   useEffect(() => {
     // Check if current route is an admin/manager route
